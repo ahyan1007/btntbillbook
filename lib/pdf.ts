@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { supabase } from '@/lib/supabase';
 
 export type BillPdfItem = {
   passenger_name: string;
@@ -49,10 +50,13 @@ function dateText(value: string) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-async function logoDataUrl() {
+async function logoDataUrl(customUrl?: string | null) {
   try {
-    const svg = await fetch('/logo.svg').then(r => r.text());
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const sourceUrl = customUrl || '/logo.svg';
+    const response = await fetch(sourceUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error('Logo fetch failed');
+    const svg = sourceUrl.endsWith('.svg') ? await response.text() : null;
+    const blob = svg ? new Blob([svg], { type: 'image/svg+xml' }) : await response.blob();
     const url = URL.createObjectURL(blob);
     const image = new Image();
     await new Promise<void>((resolve, reject) => {
@@ -111,9 +115,11 @@ function customerBlock(doc: jsPDF, y: number, name: string, phone?: string | nul
   if (address) doc.text(doc.splitTextToSize(address, 85), 105, y + 20);
 }
 
+async function businessLogoUrl() { const { data } = await supabase.from('business_settings').select('logo_url').maybeSingle(); return data?.logo_url || null; }
+
 export async function buildBillPdf(data: BillPdfData) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const logo = await logoDataUrl();
+  const logo = await logoDataUrl(await businessLogoUrl());
   header(doc, logo, 'Booking Bill');
   customerBlock(doc, 56, data.customerName, data.customerPhone, data.customerAddress);
 
@@ -201,7 +207,7 @@ export async function buildBillPdf(data: BillPdfData) {
 
 export async function buildPaymentPdf(data: PaymentPdfData) {
   const doc = new jsPDF({ unit:'mm', format:'a4' });
-  const logo = await logoDataUrl();
+  const logo = await logoDataUrl(await businessLogoUrl());
   header(doc, logo, 'Payment Receipt');
   customerBlock(doc, 56, data.customerName, data.customerPhone);
 
