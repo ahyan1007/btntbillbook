@@ -2,7 +2,7 @@
 import { useEffect,useMemo,useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FilePlus2,Users,WalletCards,ReceiptText,Plus,Search,LogOut,Trash2,Save,Menu,X,ChevronRight } from 'lucide-react';
-import { BillPdfActions, PaymentPdfActions } from '@/components/pdf-actions';
+import { BillPdfActions, BillHistoryPdfActions, PaymentPdfActions } from '@/components/pdf-actions';
 import { CustomerLedger } from '@/components/customer-ledger';
 import { PwaInstall } from '@/components/pwa-install';
 
@@ -39,4 +39,86 @@ function NewBill({onDone}:{onDone:()=>void}){const [customers,setCustomers]=useS
 
 function Payments(){const [customers,setCustomers]=useState<Customer[]>([]);const [id,setId]=useState('');const [amount,setAmount]=useState('');const [method,setMethod]=useState('Cash');const [note,setNote]=useState('');const [done,setDone]=useState<any>(null);async function load(){const {data,error}=await supabase.from('customer_balances').select('id,name,phone,current_due').order('name',{ascending:true});if(error){alert(error.message);return}setCustomers((data as Customer[])||[])}useEffect(()=>{load()},[]);const c=customers.find(x=>x.id===id);async function save(e:React.FormEvent){e.preventDefault();const {data,error}=await supabase.rpc('record_payment',{p_customer_id:id,p_payment_date:new Date().toISOString().slice(0,10),p_amount:Number(amount),p_payment_method:method,p_notes:note||null});if(error){alert(error.message);return}setDone(data);setAmount('');setNote('');load()}if(done)return <div className='card mx-auto max-w-lg p-8 text-center'><WalletCards className='mx-auto text-brand-blue' size={40}/><h1 className='mt-4 text-2xl font-black'>Payment recorded</h1><p className='mt-2 text-slate-500'>{done.payment_no}</p><div className='mt-6 rounded-2xl bg-slate-50 p-5'><p className='text-xs text-slate-400'>Received</p><p className='mt-1 text-3xl font-black'>৳ {Number(done.paid).toLocaleString('en-IN')}</p><p className='mt-4 text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>৳ {Number(done.remaining_due).toLocaleString('en-IN')}</p></div><div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:note||null}}/></div><button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button></div>;return <><Head title='Add Payment' sub='Record a payment and update the running due instantly.'/><form onSubmit={save} className='card mt-6 max-w-xl space-y-5 p-6'><div><label className='label'>Customer</label><select className='field' value={id} onChange={e=>setId(e.target.value)} required><option value=''>Select customer</option>{customers.map(x=><option key={x.id} value={x.id}>{x.name} — Due ৳ {Number(x.current_due).toLocaleString('en-IN')}</option>)}</select></div>{c&&<div className='rounded-2xl bg-orange-50 p-4'><span className='text-sm text-slate-500'>Current due</span><b className='float-right text-lg text-brand-orange'>৳ {Number(c.current_due).toLocaleString('en-IN')}</b></div>}<div><label className='label'>Payment amount</label><input className='field' type='number' min='1' max={c?.current_due||undefined} value={amount} onChange={e=>setAmount(e.target.value)} required/>{c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>৳ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ৳ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>৳ {Math.max(Number(c.current_due||0)-Number(amount||0),0).toLocaleString('en-IN')}</b></div></div>}</div><div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div><div><label className='label'>Note</label><textarea className='field min-h-24' value={note} onChange={e=>setNote(e.target.value)}/></div><button className='btn btn-primary w-full'>Save Payment</button></form></>}
 
-function Bills(){const [rows,setRows]=useState<any[]>([]);useEffect(()=>{supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,customers(name)').order('created_at',{ascending:false}).limit(50).then(({data})=>setRows(data||[]))},[]);return <><Head title='Bills' sub='Every booking bill stays in one place.'/><div className='card mt-6 overflow-hidden'><div className='divide-y divide-slate-100'>{rows.map(r=><div key={r.id} className='flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between'><div className='flex items-start gap-3'><div className='grid h-10 w-10 place-items-center rounded-xl bg-brand-blue/10 text-brand-blue'><ReceiptText size={18}/></div><div><p className='font-bold'>{r.customers?.name||'Customer'}</p><p className='mt-1 text-xs text-slate-400'>{r.bill_no} · {new Date(r.bill_date).toLocaleDateString('en-GB')}</p></div></div><div className='grid grid-cols-3 gap-5 text-right text-sm'><div><p className='text-xs text-slate-400'>Bill</p><b>৳ {Number(r.subtotal).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Paid</p><b className='text-emerald-600'>৳ {Number(r.paid_now).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Due</p><b className='text-brand-orange'>৳ {Number(r.total_due).toLocaleString('en-IN')}</b></div></div></div>)}{!rows.length&&<div className='p-10 text-center text-sm text-slate-400'>No bills yet.</div>}</div></div></>}
+function Bills(){
+ const [rows,setRows]=useState<any[]>([]);
+ const [loading,setLoading]=useState(true);
+ useEffect(()=>{
+  let active=true;
+  (async()=>{
+   setLoading(true);
+   const bills=await supabase
+    .from('bills')
+    .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,customers(name,phone,address)')
+    .order('created_at',{ascending:false})
+    .limit(50);
+   if(bills.error){alert(bills.error.message);if(active)setLoading(false);return}
+   const base=bills.data||[];
+   const ids=base.map((b:any)=>b.id);
+   let items:any[]=[];
+   if(ids.length){
+    const itemRows=await supabase
+     .from('bill_items')
+     .select('bill_id,passenger_name,travel_date,service_type,details,amount')
+     .in('bill_id',ids)
+     .order('created_at',{ascending:true});
+    if(itemRows.error){alert(itemRows.error.message);if(active)setLoading(false);return}
+    items=itemRows.data||[];
+   }
+   const itemMap=new Map<string,any[]>();
+   items.forEach((item:any)=>{
+    const list=itemMap.get(item.bill_id)||[];
+    list.push(item);
+    itemMap.set(item.bill_id,list);
+   });
+   const merged=base.map((bill:any)=>({...bill,items:itemMap.get(bill.id)||[]}));
+   if(active){setRows(merged);setLoading(false)}
+  })();
+  return()=>{active=false};
+ },[]);
+ return <><Head title='Bills' sub='Every booking bill stays in one place.'/><div className='card mt-6 overflow-hidden'>
+  {loading?<div className='p-10 text-center text-sm text-slate-400'>Loading bills...</div>:<div className='divide-y divide-slate-100'>
+   {rows.map((r,index)=>{
+    const customer=r.customers||{};
+    const pdfData={
+     billNo:r.bill_no,
+     billDate:r.bill_date,
+     customerName:customer.name||'Customer',
+     customerPhone:customer.phone||null,
+     customerAddress:customer.address||null,
+     previousDue:Number(r.previous_due||0),
+     subtotal:Number(r.subtotal||0),
+     paidNow:Number(r.paid_now||0),
+     totalDue:Number(r.total_due||0),
+     items:(r.items||[]).map((item:any)=>({
+      passenger_name:item.passenger_name||'Passenger',
+      travel_date:item.travel_date||null,
+      service_type:item.service_type||null,
+      details:item.details||null,
+      amount:Number(item.amount||0),
+     })),
+    };
+    return <div key={r.id} className='flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between'>
+     <div className='flex min-w-0 items-start gap-3'>
+      <div className='grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-blue/10 text-brand-blue'><ReceiptText size={18}/></div>
+      <div className='min-w-0'>
+       <div className='flex flex-wrap items-center gap-2'>
+        <p className='font-bold'>{customer.name||'Customer'}</p>
+        {index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest</span>}
+       </div>
+       <p className='mt-1 text-xs text-slate-400'>{r.bill_no} · {new Date(r.bill_date).toLocaleDateString('en-GB')}</p>
+      </div>
+     </div>
+     <div className='flex flex-col items-stretch gap-3 md:items-end'>
+      <div className='grid grid-cols-3 gap-5 text-right text-sm'>
+       <div><p className='text-xs text-slate-400'>Bill</p><b>৳ {Number(r.subtotal).toLocaleString('en-IN')}</b></div>
+       <div><p className='text-xs text-slate-400'>Paid</p><b className='text-emerald-600'>৳ {Number(r.paid_now).toLocaleString('en-IN')}</b></div>
+       <div><p className='text-xs text-slate-400'>Due</p><b className='text-brand-orange'>৳ {Number(r.total_due).toLocaleString('en-IN')}</b></div>
+      </div>
+      <BillHistoryPdfActions data={pdfData}/>
+     </div>
+    </div>
+   })}
+   {!rows.length&&<div className='p-10 text-center text-sm text-slate-400'>No bills yet.</div>}
+  </div>}
+ </div></>;
+}
