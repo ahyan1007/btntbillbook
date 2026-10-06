@@ -271,21 +271,22 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
 }
 
 export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: string) {
+  const waWindow = window.open('https://web.whatsapp.com/', '_blank');
   const blob = doc.output('blob');
   const file = new File([blob], fileName, {type:'application/pdf'});
-  if (navigator.share && navigator.canShare?.({files:[file]})) {
-    await navigator.share({files:[file], text: whatsappText, title:fileName});
-    return;
-  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  window.open('https://wa.me/?text=' + encodeURIComponent(whatsappText), '_blank', 'noopener,noreferrer');
+  try {
+    await navigator.clipboard?.writeText(whatsappText);
+  } catch {}
+  if (!waWindow) {
+    window.location.href = 'https://web.whatsapp.com/';
+  }
 }
-
 
 export async function sendPdfToWhatsApp(doc: jsPDF, fileName: string, phone?: string | null, message?: string) {
   if (!phone) throw new Error('Customer phone number is required for WhatsApp sending.');
