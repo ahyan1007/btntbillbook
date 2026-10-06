@@ -179,83 +179,55 @@ function Payments(){const [customers,setCustomers]=useState<Customer[]>([]);cons
 function Bills(){
  const [rows,setRows]=useState<any[]>([]);
  const [loading,setLoading]=useState(true);
- useEffect(()=>{
-  let active=true;
-  (async()=>{
-   setLoading(true);
-   const bills=await supabase
-    .from('bills')
-    .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,customers(name,phone,address)')
-    .order('created_at',{ascending:false})
-    .limit(50);
-   if(bills.error){alert(bills.error.message);if(active)setLoading(false);return}
-   const base=bills.data||[];
-   const ids=base.map((b:any)=>b.id);
-   let items:any[]=[];
+ const [q,setQ]=useState('');
+ const [page,setPage]=useState(1);
+ const [total,setTotal]=useState(0);
+ const SIZE=20;
+
+ async function load(nextPage=page,query=q){
+  setLoading(true);
+  const start=(nextPage-1)*SIZE;
+  let base:any[]=[];
+  let count=0;
+  if(query.trim()){
+   const term=query.trim();
+   const [bn,cn]=await Promise.all([
+    supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address)').ilike('bill_no','%'+term+'%').order('created_at',{ascending:false}).limit(100),
+    supabase.from('customers').select('id').ilike('name','%'+term+'%').limit(100)
+   ]);
+   if(bn.error||cn.error){alert(bn.error?.message||cn.error?.message||'Search failed.');setRows([]);setTotal(0);setLoading(false);return}
+   let cb:any[]=[];
+   const ids=(cn.data||[]).map((x:any)=>x.id);
    if(ids.length){
-    const itemRows=await supabase
-     .from('bill_items')
-     .select('bill_id,passenger_name,travel_date,service_type,details,amount')
-     .in('bill_id',ids)
-     .order('created_at',{ascending:true});
-    if(itemRows.error){alert(itemRows.error.message);if(active)setLoading(false);return}
-    items=itemRows.data||[];
+    const z=await supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address)').in('customer_id',ids).order('created_at',{ascending:false}).limit(100);
+    if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
+    cb=z.data||[];
    }
-   const itemMap=new Map<string,any[]>();
-   items.forEach((item:any)=>{
-    const list=itemMap.get(item.bill_id)||[];
-    list.push(item);
-    itemMap.set(item.bill_id,list);
-   });
-   const merged=base.map((bill:any)=>({...bill,items:itemMap.get(bill.id)||[]}));
-   if(active){setRows(merged);setLoading(false)}
-  })();
-  return()=>{active=false};
- },[]);
- return <><Head title='Bills' sub='Every booking bill stays in one place.'/><div className='card mt-6 overflow-hidden'>
-  {loading?<div className='p-10 text-center text-sm text-slate-400'>Loading bills...</div>:<div className='divide-y divide-slate-100'>
-   {rows.map((r,index)=>{
-    const customer=r.customers||{};
-    const pdfData={
-     billNo:r.bill_no,
-     billDate:r.bill_date,
-     customerName:customer.name||'Customer',
-     customerPhone:customer.phone||null,
-     customerAddress:customer.address||null,
-     previousDue:Number(r.previous_due||0),
-     subtotal:Number(r.subtotal||0),
-     paidNow:Number(r.paid_now||0),
-     totalDue:Number(r.total_due||0),
-     items:(r.items||[]).map((item:any)=>({
-      passenger_name:item.passenger_name||'Passenger',
-      travel_date:item.travel_date||null,
-      service_type:item.service_type||null,
-      details:item.details||null,
-      amount:Number(item.amount||0),
-     })),
-    };
-    return <div key={r.id} className='flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between'>
-     <div className='flex min-w-0 items-start gap-3'>
-      <div className='grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-blue/10 text-brand-blue'><ReceiptText size={18}/></div>
-      <div className='min-w-0'>
-       <div className='flex flex-wrap items-center gap-2'>
-        <p className='font-bold'>{customer.name||'Customer'}</p>
-        {index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest</span>}
-       </div>
-       <p className='mt-1 text-xs text-slate-400'>{r.bill_no} · {new Date(r.bill_date).toLocaleDateString('en-GB')}</p>
-      </div>
-     </div>
-     <div className='flex flex-col items-stretch gap-3 md:items-end'>
-      <div className='grid grid-cols-3 gap-5 text-right text-sm'>
-       <div><p className='text-xs text-slate-400'>Bill</p><b>৳ {Number(r.subtotal).toLocaleString('en-IN')}</b></div>
-       <div><p className='text-xs text-slate-400'>Paid</p><b className='text-emerald-600'>৳ {Number(r.paid_now).toLocaleString('en-IN')}</b></div>
-       <div><p className='text-xs text-slate-400'>Due</p><b className='text-brand-orange'>৳ {Number(r.total_due).toLocaleString('en-IN')}</b></div>
-      </div>
-      <BillHistoryPdfActions data={pdfData}/>
-     </div>
-    </div>
-   })}
-   {!rows.length&&<div className='p-10 text-center text-sm text-slate-400'>No bills yet.</div>}
-  </div>}
- </div></>;
+   const map=new Map<string,any>();
+   [...(bn.data||[]),...cb].forEach((x:any)=>map.set(x.id,x));
+   const all=Array.from(map.values()).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+   count=all.length;
+   base=all.slice(start,start+SIZE);
+  }else{
+   const z=await supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customers(name,phone,address)',{count:'exact'}).order('created_at',{ascending:false}).range(start,start+SIZE-1);
+   if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
+   base=z.data||[];count=z.count||0;
+  }
+  const ids=base.map((x:any)=>x.id);
+  let items:any[]=[];
+  if(ids.length){
+   const z=await supabase.from('bill_items').select('bill_id,passenger_name,travel_date,service_type,details,amount').in('bill_id',ids).order('created_at',{ascending:true});
+   if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
+   items=z.data||[];
+  }
+  const map=new Map<string,any[]>();
+  items.forEach((x:any)=>{const a=map.get(x.bill_id)||[];a.push(x);map.set(x.bill_id,a)});
+  setRows(base.map((x:any)=>({...x,items:map.get(x.id)||[]})));
+  setTotal(count);setLoading(false);
+ }
+
+ useEffect(()=>{void load(1,'')},[]);
+ const pages=Math.max(1,Math.ceil(total/SIZE));
+
+ return <><Head title='Bills' sub='Every booking bill stays in one place.'/><div className='card mt-6 p-4'><form onSubmit={e=>{e.preventDefault();setPage(1);void load(1,q)}} className='flex flex-col gap-3 sm:flex-row'><input className='field flex-1' placeholder='Search bill number or customer name...' value={q} onChange={e=>setQ(e.target.value)}/><div className='flex gap-2'><button className='btn btn-primary'>Search</button>{q&&<button type='button' className='btn btn-secondary' onClick={()=>{setQ('');setPage(1);void load(1,'')}}>Clear</button>}</div></form></div><div className='card mt-4 overflow-hidden'>{loading?<div className='p-10 text-center text-sm text-slate-400'>Loading bills...</div>:<div className='divide-y divide-slate-100'>{rows.map((r,index)=>{const customer=r.customers||{};const pdfData={billNo:r.bill_no,billDate:r.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,previousDue:Number(r.previous_due||0),subtotal:Number(r.subtotal||0),paidNow:Number(r.paid_now||0),totalDue:Number(r.total_due||0),items:(r.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};return <div key={r.id} className='flex flex-col gap-4 p-4 sm:p-5 md:flex-row md:items-center md:justify-between'><div className='min-w-0 flex-1'><div className='flex flex-wrap items-center gap-2'><p className='font-bold'>{customer.name||'Customer'}</p>{!q&&page===1&&index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest</span>}</div><p className='mt-1 text-xs text-slate-400'>{r.bill_no} · {new Date(r.bill_date).toLocaleDateString('en-GB')}</p></div><div className='flex flex-col items-stretch gap-3 md:items-end'><div className='grid grid-cols-3 gap-4 text-right text-sm'><div><p className='text-xs text-slate-400'>Bill</p><b>৳ {Number(r.subtotal).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Paid</p><b className='text-emerald-600'>৳ {Number(r.paid_now).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Due</p><b className='text-brand-orange'>৳ {Number(r.total_due).toLocaleString('en-IN')}</b></div></div><BillHistoryPdfActions data={pdfData}/></div></div>})}{!rows.length&&<div className='p-10 text-center text-sm text-slate-400'>{q?'No matching bills found.':'No bills yet.'}</div>}</div>}</div>{total>0&&<div className='mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row'><p className='text-xs text-slate-400'>Page {page} of {pages} · {total} bills</p><div className='flex w-full gap-2 sm:w-auto'><button type='button' disabled={page<=1||loading} onClick={()=>{const n=page-1;setPage(n);void load(n,q)}} className='btn btn-secondary flex-1 sm:flex-none'>Previous</button><button type='button' disabled={page>=pages||loading} onClick={()=>{const n=page+1;setPage(n);void load(n,q)}} className='btn btn-secondary flex-1 sm:flex-none'>Next</button></div></div>}</>;
 }
