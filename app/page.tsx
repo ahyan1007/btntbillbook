@@ -27,7 +27,107 @@ function Shell({children,view,setView,mobile,setMobile}:{children:React.ReactNod
 
 function Content({view}:{view:View}){const [refresh,setRefresh]=useState(0);if(view==='dashboard')return <Dashboard key={refresh}/>;if(view==='customers')return <Customers/>;if(view==='bill')return <NewBill onDone={()=>setRefresh(refresh+1)}/>;if(view==='payments')return <Payments/>;return <Bills/>}
 
-function Dashboard(){const [rows,setRows]=useState<Customer[]>([]);const [logoUrl,setLogoUrl]=useState<string|null>(null);const [uploading,setUploading]=useState(false);useEffect(()=>{supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8).then(({data})=>setRows((data as Customer[])||[]));supabase.from('business_settings').select('logo_url').maybeSingle().then(({data})=>setLogoUrl(data?.logo_url||null))},[]);async function uploadLogo(file:File){const allowed=['image/png','image/jpeg','image/webp','image/svg+xml'];if(!allowed.includes(file.type)){alert('Please upload PNG, JPG, WEBP or SVG.');return}if(file.size>2*1024*1024){alert('Logo must be under 2 MB.');return}const {data:{user}}=await supabase.auth.getUser();if(!user)return;setUploading(true);const ext=(file.name.split('.').pop()||'png').toLowerCase();const path=user.id+'/logo.'+ext;const up=await supabase.storage.from('branding').upload(path,file,{upsert:true,contentType:file.type||'image/png',cacheControl:'3600'});if(up.error){setUploading(false);alert(up.error.message);return}const publicUrl=supabase.storage.from('branding').getPublicUrl(path).data.publicUrl;const save=await supabase.from('business_settings').upsert({user_id:user.id,logo_url:publicUrl,updated_at:new Date().toISOString()});setUploading(false);if(save.error){alert(save.error.message);return}setLogoUrl(publicUrl+'?v='+Date.now())}const due=rows.reduce((s,r)=>s+Number(r.current_due||0),0);return <><div className='mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end'><div><p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-3xl font-black tracking-tight'>Bill Book Dashboard</h1><p className='mt-2 text-sm text-slate-500'>Bookings, payments and customer dues — kept simple.</p></div></div><div className='grid gap-4 md:grid-cols-3'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'৳ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<Users/>} title='Customers with Due' value={String(rows.length)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div><div className='card mt-6 p-5'><div className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between'><div><h2 className='font-black'>Bill Logo</h2><p className='mt-1 text-xs text-slate-400'>Upload your company logo. It will appear automatically on generated bills and receipts.</p></div><div className='flex items-center gap-4'><div className='grid h-16 w-32 place-items-center rounded-xl border border-slate-200 bg-white p-2'>{logoUrl?<img src={logoUrl} alt='Business logo' className='max-h-12 max-w-28 object-contain'/>:<span className='text-xs text-slate-400'>Default logo</span>}</div><label className='btn btn-secondary cursor-pointer'>{uploading?'Uploading...':'Upload Logo'}<input type='file' className='hidden' accept='image/png,image/jpeg,image/webp,image/svg+xml' disabled={uploading} onChange={e=>{const file=e.target.files?.[0];if(file)uploadLogo(file);e.currentTarget.value=''}}/></label></div></div></div><div className='card mt-6 overflow-hidden'><div className='border-b border-slate-100 p-5'><h2 className='font-black'>Outstanding Customers</h2><p className='mt-1 text-xs text-slate-400'>Highest due balances first.</p></div>{rows.length===0?<div className='p-8 text-sm text-slate-400'>No customer balances yet. Add a customer to start.</div>:<div className='divide-y divide-slate-100'>{rows.map(r=><div key={r.id} className='flex items-center justify-between p-5'><div><p className='font-bold'>{r.name}</p><p className='mt-1 text-xs text-slate-400'>{r.phone||'No mobile'}</p></div><b className='text-brand-orange'>৳ {Number(r.current_due).toLocaleString('en-IN')}</b></div>)}</div>}</div></>}
+function Dashboard(){
+ const [rows,setRows]=useState<Customer[]>([]);
+ const [uploading,setUploading]=useState(false);
+ const [savingBrand,setSavingBrand]=useState(false);
+ const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null});
+ useEffect(()=>{
+  supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8).then(({data})=>setRows((data as Customer[])||[]));
+  supabase.from('business_settings').select('*').maybeSingle().then(({data})=>{if(data)setBrand((prev:any)=>({...prev,...data}))});
+ },[]);
+ async function uploadLogo(file:File){
+  const allowed=['image/png','image/jpeg','image/webp','image/svg+xml'];
+  if(!allowed.includes(file.type)){alert('Please upload PNG, JPG, WEBP or SVG.');return}
+  if(file.size>2*1024*1024){alert('Logo must be under 2 MB.');return}
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user)return;
+  setUploading(true);
+  const ext=(file.name.split('.').pop()||'png').toLowerCase();
+  const path=user.id+'/logo.'+ext;
+  const up=await supabase.storage.from('branding').upload(path,file,{upsert:true,contentType:file.type||'image/png',cacheControl:'3600'});
+  if(up.error){setUploading(false);alert(up.error.message);return}
+  const publicUrl=supabase.storage.from('branding').getPublicUrl(path).data.publicUrl+'?v='+Date.now();
+  const save=await supabase.from('business_settings').upsert({user_id:user.id,logo_url:publicUrl.split('?')[0],updated_at:new Date().toISOString()});
+  setUploading(false);
+  if(save.error){alert(save.error.message);return}
+  setBrand((x:any)=>({...x,logo_url:publicUrl}));
+ }
+ async function saveBranding(e:React.FormEvent){
+  e.preventDefault();
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user)return;
+  setSavingBrand(true);
+  const payload={
+   user_id:user.id,
+   company_name:brand.company_name,
+   tagline:brand.tagline||null,
+   address:brand.address||null,
+   phone:brand.phone||null,
+   email:brand.email||null,
+   website:brand.website||null,
+   footer_text:brand.footer_text||null,
+   pdf_template:brand.pdf_template,
+   show_logo:!!brand.show_logo,
+   updated_at:new Date().toISOString()
+  };
+  const {error}=await supabase.from('business_settings').upsert(payload);
+  setSavingBrand(false);
+  if(error){alert(error.message);return}
+  alert('PDF branding saved successfully.');
+ }
+ function setField(key:string,value:string|boolean){setBrand((x:any)=>({...x,[key]:value}))}
+ const due=rows.reduce((s,r)=>s+Number(r.current_due||0),0);
+ const templates=[
+  {key:'travel',name:'Travel Premium',desc:'Travel illustration, blue-orange premium header',icon:'✈️'},
+  {key:'classic',name:'Classic Corporate',desc:'Formal navy corporate invoice style',icon:'▣'},
+  {key:'modern',name:'Modern Clean',desc:'Minimal modern business document',icon:'◈'},
+  {key:'minimal',name:'Minimal',desc:'Very clean paper-style layout',icon:'—'}
+ ];
+ return <>
+  <div className='mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end'><div><p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-3xl font-black tracking-tight'>Bill Book Dashboard</h1><p className='mt-2 text-sm text-slate-500'>Bookings, payments and customer dues — kept simple.</p></div></div>
+  <div className='grid gap-4 md:grid-cols-3'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'৳ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<Users/>} title='Customers with Due' value={String(rows.length)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>
+
+  <div className='card mt-6 p-4 sm:p-5'>
+   <div className='mb-5'><h2 className='font-black'>PDF Template & Business Branding</h2><p className='mt-1 text-xs leading-5 text-slate-400'>Choose a ready template, then set your own logo, company name, address and contact details. These settings appear on new bills and receipts.</p></div>
+
+   <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+    {templates.map(t=><button key={t.key} type='button' onClick={()=>setField('pdf_template',t.key)} className={'rounded-2xl border p-4 text-left transition '+(brand.pdf_template===t.key?'border-brand-blue bg-brand-blue/5 ring-2 ring-brand-blue/10':'border-slate-200 bg-white hover:bg-slate-50')}>
+      <div className='text-2xl'>{t.icon}</div><div className='mt-3 font-black text-sm'>{t.name}</div><div className='mt-1 text-[11px] leading-4 text-slate-400'>{t.desc}</div>{brand.pdf_template===t.key&&<div className='mt-3 text-[10px] font-black uppercase tracking-widest text-brand-blue'>Selected</div>}
+    </button>)}
+   </div>
+
+   <form onSubmit={saveBranding} className='mt-6 grid gap-5 lg:grid-cols-[1fr_260px]'>
+    <div className='space-y-4'>
+      <div className='grid gap-4 sm:grid-cols-2'>
+       <div><label className='label'>Company name</label><input className='field' value={brand.company_name||''} onChange={e=>setField('company_name',e.target.value)} /></div>
+       <div><label className='label'>Tagline</label><input className='field' value={brand.tagline||''} onChange={e=>setField('tagline',e.target.value)} placeholder='Your Trusted Travel Partner' /></div>
+       <div className='sm:col-span-2'><label className='label'>Business address</label><textarea className='field min-h-20' value={brand.address||''} onChange={e=>setField('address',e.target.value)} placeholder='Full office address' /></div>
+       <div><label className='label'>Phone</label><input className='field' value={brand.phone||''} onChange={e=>setField('phone',e.target.value)} placeholder='+880...' /></div>
+       <div><label className='label'>Email</label><input className='field' type='email' value={brand.email||''} onChange={e=>setField('email',e.target.value)} placeholder='info@example.com' /></div>
+       <div><label className='label'>Website</label><input className='field' value={brand.website||''} onChange={e=>setField('website',e.target.value)} placeholder='www.example.com' /></div>
+       <div><label className='label'>Footer text</label><input className='field' value={brand.footer_text||''} onChange={e=>setField('footer_text',e.target.value)} placeholder='Professional Travel Services' /></div>
+      </div>
+      <label className='flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-700'>
+       <input type='checkbox' checked={brand.show_logo!==false} onChange={e=>setField('show_logo',e.target.checked)} className='h-4 w-4'/> Show logo on PDF
+      </label>
+      <button className='btn btn-primary w-full sm:w-auto' disabled={savingBrand}>{savingBrand?'Saving...':'Save PDF Branding'}</button>
+    </div>
+
+    <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+      <p className='text-xs font-black uppercase tracking-widest text-brand-blue'>Logo</p>
+      <div className='mt-3 grid h-40 place-items-center rounded-xl border border-slate-200 bg-white p-3'>
+       {brand.logo_url?<img src={brand.logo_url} alt='Business logo' className='max-h-28 max-w-full object-contain'/>:<span className='text-xs text-slate-400'>No logo uploaded</span>}
+      </div>
+      <label className='btn btn-secondary mt-3 w-full cursor-pointer'>{uploading?'Uploading...':'Upload / Replace Logo'}<input type='file' className='hidden' accept='image/png,image/jpeg,image/webp,image/svg+xml' disabled={uploading} onChange={e=>{const file=e.target.files?.[0];if(file)uploadLogo(file);e.currentTarget.value=''}}/></label>
+      <p className='mt-2 text-[11px] leading-4 text-slate-400'>PNG, JPG, WEBP or SVG. Maximum 2 MB.</p>
+    </div>
+   </form>
+  </div>
+
+  <div className='card mt-6 overflow-hidden'><div className='border-b border-slate-100 p-5'><h2 className='font-black'>Outstanding Customers</h2><p className='mt-1 text-xs text-slate-400'>Highest due balances first.</p></div>{rows.length===0?<div className='p-8 text-sm text-slate-400'>No customer balances yet. Add a customer to start.</div>:<div className='divide-y divide-slate-100'>{rows.map(r=><div key={r.id} className='flex items-center justify-between gap-3 p-4 sm:p-5'><div className='min-w-0'><p className='truncate font-bold'>{r.name}</p><p className='mt-1 truncate text-xs text-slate-400'>{r.phone||'No mobile'}</p></div><b className='shrink-0 text-brand-orange'>৳ {Number(r.current_due).toLocaleString('en-IN')}</b></div>)}</div>}</div>
+ </>;
+}
 function Stat({icon,title,value,accent}:{icon:React.ReactNode;title:string;value:string;accent:string}){return <div className='card p-5'><div className='flex items-center justify-between'><span className='text-sm font-semibold text-slate-500'>{title}</span><span className={accent==='orange'?'text-brand-orange':'text-brand-blue'}>{icon}</span></div><div className='mt-4 text-3xl font-black'>{value}</div></div>}
 
 function Customers(){const [rows,setRows]=useState<Customer[]>([]);const [q,setQ]=useState('');const [show,setShow]=useState(false);const [editing,setEditing]=useState<Customer|null>(null);const [ledger,setLedger]=useState<string|null>(null);const [name,setName]=useState('');const [phone,setPhone]=useState('');const [address,setAddress]=useState('');const [openingDue,setOpeningDue]=useState('0');async function load(){const {data}=await supabase.from('customer_balances').select('id,name,phone,address,current_due,opening_due').order('name');setRows((data as Customer[])||[])}useEffect(()=>{load()},[]);function resetForm(){setName('');setPhone('');setAddress('');setOpeningDue('0');setShow(false);setEditing(null)}function openEdit(r:Customer){setEditing(r);setName(r.name);setPhone(r.phone||'');setAddress(r.address||'');setOpeningDue(String(r.opening_due??0));setShow(true)}async function save(e:React.FormEvent){e.preventDefault();const {data:{user}}=await supabase.auth.getUser();if(!user)return;const payload={name,phone:phone||null,address:address||null,opening_due:Number(openingDue)||0};const r=editing?await supabase.from('customers').update(payload).eq('id',editing.id).eq('user_id',user.id):await supabase.from('customers').insert({user_id:user.id,...payload});if(r.error)alert(r.error.message);else{resetForm();load()}}async function removeCustomer(r:Customer){if(!confirm('Delete '+r.name+'? This can only be deleted if the customer has no bills or payments.'))return;const x=await supabase.from('customers').delete().eq('id',r.id).eq('user_id',(await supabase.auth.getUser()).data.user?.id);if(x.error){alert('Customer cannot be deleted because this customer has bills or payments. Edit the customer instead.')}else load()}const list=rows.filter(r=>(r.name+' '+(r.phone||'')).toLowerCase().includes(q.toLowerCase()));return <><Head title='Customers' sub='One clean ledger for every customer.' action={<button className='btn btn-primary' onClick={()=>setShow(true)}><Plus size={18}/> New Customer</button>}/><div className='card mt-6 overflow-hidden'><div className='border-b border-slate-100 p-4'><div className='relative'><Search className='absolute left-3 top-3.5 text-slate-400' size={18}/><input className='field pl-10' placeholder='Search customer or mobile...' value={q} onChange={e=>setQ(e.target.value)}/></div></div><div className='divide-y divide-slate-100'>{list.map(r=><div key={r.id} className='flex items-center justify-between gap-3 p-5 hover:bg-slate-50'><button onClick={()=>setLedger(r.id)} className='min-w-0 flex-1 text-left'><p className='font-bold'>{r.name}</p><p className='mt-1 text-xs text-slate-400'>{r.phone||'No mobile'}</p></button><div className='flex shrink-0 items-center gap-3'><b className={Number(r.current_due)>0?'text-brand-orange':'text-emerald-600'}>৳ {Number(r.current_due).toLocaleString('en-IN')}</b><button type='button' onClick={()=>openEdit(r)} className='rounded-lg px-2.5 py-2 text-xs font-bold text-brand-blue hover:bg-brand-blue/10'>Edit</button><button type='button' onClick={()=>removeCustomer(r)} className='rounded-lg px-2.5 py-2 text-xs font-bold text-red-600 hover:bg-red-50'>Delete</button><ChevronRight size={18} className='text-slate-300'/></div></div>)}{!list.length&&<div className='p-8 text-center text-sm text-slate-400'>No customers found.</div>}</div></div>{show&&<Modal title={editing?'Edit Customer':'New Customer'} close={resetForm}><form onSubmit={save} className='space-y-4'><div><label className='label'>Customer name</label><input className='field' value={name} onChange={e=>setName(e.target.value)} required/></div><div><label className='label'>Mobile</label><input className='field' value={phone} onChange={e=>setPhone(e.target.value)}/></div><div><label className='label'>Address</label><textarea className='field min-h-24' value={address} onChange={e=>setAddress(e.target.value)}/></div><div><label className='label'>Opening / Previous Due</label><input className='field' type='number' min='0' value={openingDue} onChange={e=>setOpeningDue(e.target.value)} placeholder='10000'/><p className='mt-1 text-xs text-slate-400'>If this customer already owes money, enter that amount here.</p></div><button className='btn btn-primary w-full'>Save Customer</button></form></Modal>}{ledger&&<CustomerLedger customerId={ledger} onClose={()=>setLedger(null)}/>}</>}
