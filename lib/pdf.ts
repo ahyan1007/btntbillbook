@@ -483,10 +483,6 @@ export async function buildBillPdf(data: BillPdfData) {
     y += rowH + 2;
   }
 
-  if (doc.getNumberOfPages() > 1) {
-    footer(doc);
-  }
-
   const summaryY = Math.min(Math.max(y + 4, 184), 222);
   drawSummaryBox(
     doc,
