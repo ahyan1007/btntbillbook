@@ -45,6 +45,8 @@ type PdfBranding = {
   pdf_template: 'travel' | 'classic' | 'modern' | 'minimal';
   logo_url?: string | null;
   show_logo: boolean;
+  primary_color: string;
+  accent_color: string;
 };
 
 const DEFAULT_BRANDING: PdfBranding = {
@@ -78,7 +80,7 @@ function dateText(value: string) {
 async function businessBranding(): Promise<PdfBranding> {
   try {
     const { data } = await supabase.from('business_settings').select(
-      'logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo'
+      'logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color'
     ).maybeSingle();
 
     if (!data) return DEFAULT_BRANDING;
@@ -94,6 +96,8 @@ async function businessBranding(): Promise<PdfBranding> {
       pdf_template: (data.pdf_template || DEFAULT_BRANDING.pdf_template) as PdfBranding['pdf_template'],
       logo_url: data.logo_url || null,
       show_logo: data.show_logo !== false,
+      primary_color: data.primary_color || DEFAULT_BRANDING.primary_color,
+      accent_color: data.accent_color || DEFAULT_BRANDING.accent_color,
     };
   } catch {
     return DEFAULT_BRANDING;
@@ -129,9 +133,15 @@ async function logoDataUrl(customUrl?: string | null) {
   }
 }
 
+function hexRgb(value: string, fallback: readonly [number,number,number]) {
+  const hex=value.trim().replace(/^#/,'');
+  if(!/^[0-9a-fA-F]{6}$/.test(hex)) return fallback;
+  return [parseInt(hex.slice(0,2),16),parseInt(hex.slice(2,4),16),parseInt(hex.slice(4,6),16)] as const;
+}
+
 function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBranding) {
-  const primary = brand.pdf_template === 'minimal' ? [15,23,42] : INK;
-  const accent = ORANGE;
+  const primary = hexRgb(brand.primary_color, INK);
+  const accent = hexRgb(brand.accent_color, ORANGE);
 
   if (brand.pdf_template === 'minimal') {
     doc.setFillColor(255,255,255);
@@ -174,7 +184,7 @@ function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBrandi
     doc.setFillColor(247,250,254);
     doc.rect(0,0,210,49,'F');
     if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,8,58,22);
-    doc.setTextColor(...BLUE);
+    doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
     doc.setFontSize(15);
     doc.text(brand.company_name,195,15,{align:'right'});
@@ -304,9 +314,11 @@ function customerBlock(doc: jsPDF, y: number, name: string, phone?: string | nul
 
 
 function brandingFooter(doc: jsPDF, brand: PdfBranding) {
-  doc.setFillColor(...INK);
+  const primary = hexRgb(brand.primary_color, INK);
+  const accent = hexRgb(brand.accent_color, ORANGE);
+  doc.setFillColor(...primary);
   doc.rect(0,284,210,13,'F');
-  doc.setFillColor(...ORANGE);
+  doc.setFillColor(...accent);
   doc.rect(0,284,210,1.5,'F');
   doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
