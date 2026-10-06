@@ -2,7 +2,23 @@
 
 import { useState } from 'react';
 import { FileDown, MessageCircle } from 'lucide-react';
-import { buildBillPdf, buildPaymentPdf, sharePdf, sendPdfToWhatsApp, type BillPdfData, type PaymentPdfData } from '@/lib/pdf';
+import { supabase } from '@/lib/supabase';
+import { buildBillPdf, buildPaymentPdf, sharePdf, type BillPdfData, type PaymentPdfData } from '@/lib/pdf';
+
+async function sendPdfToWhatsApp(doc: any, fileName: string, phone?: string | null, message?: string) {
+  if (!phone) throw new Error('Customer phone number is required for WhatsApp sending.');
+  const blob = doc.output('blob');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const { error } = await supabase.functions.invoke('send-whatsapp-pdf', {
+    body: { phone, fileName, caption: message || '', pdfBase64: btoa(binary) },
+  });
+  if (error) throw new Error(error.message || 'WhatsApp send failed.');
+}
 
 export function BillPdfActions({data}:{data:BillPdfData}) {
   const [busy,setBusy]=useState(false);
