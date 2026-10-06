@@ -218,16 +218,21 @@ export async function buildBillPdf(data: BillPdfData) {
   pill(doc,131,94,64,'Document','Booking Bill');
 
   let y=123;
+  // Premium invoice table header.
   doc.setFillColor(...INK);
-  doc.roundedRect(15,y,180,11,2,2,'F');
+  doc.roundedRect(15,y,180,12,2.5,2.5,'F');
+  doc.setFillColor(...ORANGE);
+  doc.roundedRect(15,y,4,12,2.5,2.5,'F');
+
   doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(7);
-  doc.text('PASSENGER',20,y+7);
-  doc.text('TRAVEL DATE',67,y+7);
-  doc.text('SERVICE / DETAILS',105,y+7);
-  doc.text('AMOUNT',190,y+7,{align:'right'});
-  y+=17;
+  doc.setFontSize(6.8);
+  doc.text('#',20,y+7.5);
+  doc.text('PASSENGER',28,y+7.5);
+  doc.text('TRAVEL DATE',65,y+7.5);
+  doc.text('SERVICE / DETAILS',97,y+7.5);
+  doc.text('AMOUNT (BDT)',190,y+7.5,{align:'right'});
+  y+=18;
 
   doc.setFontSize(8);
   for(const item of data.items){
@@ -239,42 +244,68 @@ export async function buildBillPdf(data: BillPdfData) {
       header(doc,logo,'Booking Bill');
       y=58;
     }
-    doc.setFillColor(248,250,252);
-    doc.roundedRect(15,y-6,180,rowH,2,2,'F');
-    doc.setTextColor(...INK);
+    const rowFill = index % 2 === 0 ? [249,251,253] : [244,248,252];
+    doc.setFillColor(rowFill[0], rowFill[1], rowFill[2]);
+    doc.setDrawColor(226,232,240);
+    doc.roundedRect(15,y-6,180,rowH,2.5,2.5,'FD');
+
+    doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
-    doc.text(item.passenger_name||'Passenger',20,y+1);
+    doc.setFontSize(6.8);
+    doc.text(String(index + 1),20,y+1);
+
+    doc.setTextColor(...INK);
+    doc.setFontSize(7.5);
+    doc.text(item.passenger_name||'Passenger',28,y+1);
+
     doc.setFont('helvetica','normal');
-    doc.text(item.travel_date?dateText(item.travel_date):'—',67,y+1);
-    doc.text(lines,105,y+1);
+    doc.setTextColor(...MUTED);
+    doc.text(item.travel_date?dateText(item.travel_date):'—',65,y+1);
+
+    doc.setTextColor(...INK);
+    doc.text(lines,97,y+1);
+
     doc.setFont('helvetica','bold');
     doc.text(money(item.amount),190,y+1,{align:'right'});
     y+=rowH+2;
   }
 
   y=Math.max(y+7,190);
-  doc.setDrawColor(226,232,240);
-  doc.line(105,y,195,y);
+
+  // Right-side premium payment summary.
+  doc.setFillColor(248,250,253);
+  doc.setDrawColor(220,231,242);
+  doc.roundedRect(105,y,90,58,4.5,4.5,'FD');
+
+  doc.setFillColor(...BLUE);
+  doc.roundedRect(110,y+5,5,10,1.5,1.5,'F');
+  doc.setTextColor(...INK);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(8.2);
+  doc.text('PAYMENT SUMMARY',120,y+12);
 
   const rows=[['Previous Due',data.previousDue],["Today's Bill",data.subtotal],['Paid Now',data.paidNow]];
   rows.forEach(([label,value],i)=>{
+    const yy=y+22+i*7.5;
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','normal');
-    doc.setFontSize(8);
-    doc.text(String(label),112,y+9+i*8);
-    doc.setTextColor(...INK);
+    doc.setFontSize(7.2);
+    doc.text(String(label),112,yy);
+    if(i===2) doc.setTextColor(16,160,100);
+    else doc.setTextColor(...INK);
     doc.setFont('helvetica','bold');
-    doc.text(money(Number(value)),190,y+9+i*8,{align:'right'});
+    doc.text(money(Number(value)),190,yy,{align:'right'});
   });
 
+  // Highlighted outstanding amount.
   doc.setFillColor(...ORANGE);
-  doc.roundedRect(105,y+35,90,18,4,4,'F');
+  doc.roundedRect(105,y+42,90,16,4,4,'F');
   doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
   doc.setFontSize(7);
-  doc.text('TOTAL OUTSTANDING',112,y+43);
-  doc.setFontSize(11);
-  doc.text(money(data.totalDue),190,y+44,{align:'right'});
+  doc.text('TOTAL OUTSTANDING',112,y+52);
+  doc.setFontSize(10.5);
+  doc.text(money(data.totalDue),190,y+53,{align:'right'});
 
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
