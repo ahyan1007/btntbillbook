@@ -34,6 +34,31 @@ export type PaymentPdfData = {
   note?: string | null;
 };
 
+type PdfBranding = {
+  company_name: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  footer_text: string;
+  pdf_template: 'travel' | 'classic' | 'modern' | 'minimal';
+  logo_url?: string | null;
+  show_logo: boolean;
+};
+
+const DEFAULT_BRANDING: PdfBranding = {
+  company_name: 'Bangladesh Tours & Travels',
+  tagline: 'Your Trusted Travel Partner',
+  address: '',
+  phone: '',
+  email: '',
+  website: '',
+  footer_text: 'Professional Travel Services',
+  pdf_template: 'travel',
+  show_logo: true,
+};
+
 const BLUE = [20, 135, 201] as const;
 const ORANGE = [247, 148, 29] as const;
 const INK = [15, 23, 42] as const;
@@ -48,6 +73,31 @@ function dateText(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+async function businessBranding(): Promise<PdfBranding> {
+  try {
+    const { data } = await supabase.from('business_settings').select(
+      'logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo'
+    ).maybeSingle();
+
+    if (!data) return DEFAULT_BRANDING;
+
+    return {
+      company_name: data.company_name || DEFAULT_BRANDING.company_name,
+      tagline: data.tagline || DEFAULT_BRANDING.tagline,
+      address: data.address || '',
+      phone: data.phone || '',
+      email: data.email || '',
+      website: data.website || '',
+      footer_text: data.footer_text || DEFAULT_BRANDING.footer_text,
+      pdf_template: (data.pdf_template || DEFAULT_BRANDING.pdf_template) as PdfBranding['pdf_template'],
+      logo_url: data.logo_url || null,
+      show_logo: data.show_logo !== false,
+    };
+  } catch {
+    return DEFAULT_BRANDING;
+  }
 }
 
 async function logoDataUrl(customUrl?: string | null) {
@@ -79,73 +129,121 @@ async function logoDataUrl(customUrl?: string | null) {
   }
 }
 
-function header(doc: jsPDF, logo: string | null, title: string) {
-  // Premium travel header — kept within the existing stable page layout.
+function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBranding) {
+  const primary = brand.pdf_template === 'minimal' ? [15,23,42] : INK;
+  const accent = ORANGE;
+
+  if (brand.pdf_template === 'minimal') {
+    doc.setFillColor(255,255,255);
+    doc.rect(0,0,210,37,'F');
+    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,7,52,20);
+    doc.setTextColor(...primary as [number,number,number]);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.text(brand.company_name,196,15,{align:'right'});
+    doc.setTextColor(...MUTED);
+    doc.setFontSize(6.8);
+    doc.text(title.toUpperCase(),196,22,{align:'right'});
+    doc.setFillColor(...accent);
+    doc.rect(0,35,210,2,'F');
+    return;
+  }
+
+  if (brand.pdf_template === 'classic') {
+    doc.setFillColor(...INK);
+    doc.rect(0,0,210,45,'F');
+    doc.setFillColor(...accent);
+    doc.rect(0,0,210,3,'F');
+    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,8,62,25);
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text(brand.company_name,195,16,{align:'right'});
+    doc.setTextColor(203,213,225);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7);
+    doc.text((brand.tagline||'').toUpperCase(),195,23,{align:'right'});
+    doc.setTextColor(...accent);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(10);
+    doc.text(title.toUpperCase(),195,35,{align:'right'});
+    return;
+  }
+
+  if (brand.pdf_template === 'modern') {
+    doc.setFillColor(247,250,254);
+    doc.rect(0,0,210,49,'F');
+    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,8,58,22);
+    doc.setTextColor(...BLUE);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text(brand.company_name,195,15,{align:'right'});
+    doc.setTextColor(...MUTED);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(6.8);
+    doc.text(brand.tagline || '',195,22,{align:'right'});
+    doc.setTextColor(...accent);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(9);
+    doc.text(title.toUpperCase(),195,32,{align:'right'});
+    doc.setFillColor(...accent);
+    doc.rect(0,47,210,2,'F');
+    return;
+  }
+
+  // Travel Premium
   doc.setFillColor(255,255,255);
-  doc.rect(0, 0, 210, 49, 'F');
-
-  // Soft travel illustration panel on the right.
+  doc.rect(0,0,210,49,'F');
   doc.setFillColor(242,247,253);
-  doc.rect(118, 0, 92, 49, 'F');
+  doc.rect(118,0,92,49,'F');
 
-  // Skyline.
   doc.setFillColor(...INK);
-  doc.rect(150, 31, 6, 18, 'F');
-  doc.rect(159, 24, 8, 25, 'F');
-  doc.rect(170, 28, 6, 21, 'F');
-  doc.rect(179, 19, 8, 30, 'F');
-  doc.rect(191, 26, 6, 23, 'F');
-  doc.rect(201, 33, 4, 16, 'F');
+  doc.rect(150,31,6,18,'F');
+  doc.rect(159,24,8,25,'F');
+  doc.rect(170,28,6,21,'F');
+  doc.rect(179,19,8,30,'F');
+  doc.rect(191,26,6,23,'F');
+  doc.rect(201,33,4,16,'F');
+  doc.setFillColor(...accent);
+  doc.rect(150,31,6,1.2,'F');
+  doc.rect(159,24,8,1.2,'F');
+  doc.rect(179,19,8,1.2,'F');
 
-  doc.setFillColor(...ORANGE);
-  doc.rect(150, 31, 6, 1.2, 'F');
-  doc.rect(159, 24, 8, 1.2, 'F');
-  doc.rect(179, 19, 8, 1.2, 'F');
-
-  // Globe.
   doc.setDrawColor(...BLUE);
   doc.setLineWidth(0.55);
-  doc.circle(176, 28, 10, 'S');
-  doc.line(166, 28, 186, 28);
-  doc.ellipse(176, 28, 4.5, 10, 'S');
-  doc.line(168, 23, 184, 23);
-  doc.line(168, 33, 184, 33);
+  doc.circle(176,28,10,'S');
+  doc.line(166,28,186,28);
+  doc.ellipse(176,28,4.5,10,'S');
+  doc.line(168,23,184,23);
+  doc.line(168,33,184,33);
 
-  // Flight path + plane motif.
-  doc.setDrawColor(...ORANGE);
-  doc.setLineWidth(0.55);
-  doc.line(121, 16, 139, 12);
-  doc.line(139, 12, 150, 15);
+  doc.setDrawColor(...accent);
+  doc.line(121,16,139,12);
+  doc.line(139,12,150,15);
   doc.setDrawColor(...INK);
-  doc.line(141, 12, 153, 9);
-  doc.line(153, 9, 156, 12);
-  doc.line(153, 9, 149, 6);
-  doc.line(149, 12, 145, 17);
+  doc.line(141,12,153,9);
+  doc.line(153,9,156,12);
+  doc.line(153,9,149,6);
+  doc.line(149,12,145,17);
 
-  if (logo) doc.addImage(logo, 'PNG', 12, 7, 72, 23);
-
+  if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,7,72,23);
   doc.setTextColor(...INK);
   doc.setFont('helvetica','bold');
   doc.setFontSize(15);
-  doc.text('Bangladesh Tours & Travels', 12, 37);
-
+  doc.text(brand.company_name,12,37);
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
   doc.setFontSize(7.2);
-  doc.text('Your Trusted Travel Partner', 12, 43);
-
-  doc.setTextColor(...ORANGE);
+  doc.text(brand.tagline || 'Your Trusted Travel Partner',12,43);
+  doc.setTextColor(...accent);
   doc.setFont('helvetica','bold');
   doc.setFontSize(7.5);
-  doc.text('AIR TICKET  •  TOUR PACKAGE  •  VISA  •  HOTEL', 120, 46);
-
-  // Orange + navy divider.
-  doc.setFillColor(...ORANGE);
-  doc.rect(0, 47, 210, 1, 'F');
+  doc.text('AIR TICKET  •  TOUR PACKAGE  •  VISA  •  HOTEL',120,46);
+  doc.setFillColor(...accent);
+  doc.rect(0,47,210,1,'F');
   doc.setFillColor(...INK);
-  doc.rect(0, 48, 210, 1, 'F');
+  doc.rect(0,48,210,1,'F');
 }
-
 function pill(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
   doc.setFillColor(247,250,254);
   doc.setDrawColor(226,234,243);
@@ -205,13 +303,34 @@ function customerBlock(doc: jsPDF, y: number, name: string, phone?: string | nul
 }
 
 
-async function businessLogoUrl() { const { data } = await supabase.from('business_settings').select('logo_url').maybeSingle(); return data?.logo_url || null; }
+function brandingFooter(doc: jsPDF, brand: PdfBranding) {
+  doc.setFillColor(...INK);
+  doc.rect(0,284,210,13,'F');
+  doc.setFillColor(...ORANGE);
+  doc.rect(0,284,210,1.5,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(7);
+  doc.text([brand.company_name,brand.footer_text].filter(Boolean).join('  •  '),12,292.5);
+  const contact=[brand.address,brand.phone,brand.email,brand.website].filter(Boolean).join('  •  ');
+  if(contact){
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(5.5);
+    doc.text(contact,198,288.5,{align:'right',maxWidth:86});
+  }
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(6);
+  doc.text('Computer generated document',198,292.5,{align:'right'});
+}
+
+
 
 export async function buildBillPdf(data: BillPdfData) {
   const doc = new jsPDF({unit:'mm',format:'a4'});
-  const logo = await logoDataUrl(await businessLogoUrl());
+  const brand = await businessBranding();
+  const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
 
-  header(doc,logo,'Booking Bill');
+  header(doc,logo,'Booking Bill',brand);
   customerBlock(doc,53,data.customerName,data.customerPhone,data.customerAddress);
   pill(doc,15,94,54,'Bill Number',data.billNo);
   pill(doc,73,94,54,'Bill Date',dateText(data.billDate));
@@ -242,7 +361,7 @@ export async function buildBillPdf(data: BillPdfData) {
     const rowH=Math.max(14,lines.length*4.1+7);
     if(y+rowH>250){
       doc.addPage();
-      header(doc,logo,'Booking Bill');
+      header(doc,logo,'Booking Bill',brand);
       y=58;
     }
     const rowFill = itemIndex % 2 === 0 ? [249,251,253] : [244,248,252];
@@ -312,23 +431,18 @@ export async function buildBillPdf(data: BillPdfData) {
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
   doc.setFontSize(7);
-  doc.text('Thank you for choosing Bangladesh Tours & Travels.',105,278,{align:'center'});
-  doc.setDrawColor(...BLUE);
-  doc.setLineWidth(.7);
-  doc.line(15,284,195,284);
-  doc.setTextColor(...BLUE);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(8);
-  doc.text('Bangladesh Tours & Travels  •  Professional Travel Services',105,291,{align:'center'});
+  doc.text('Thank you for choosing ' + brand.company_name + '.',105,278,{align:'center'});
+  brandingFooter(doc,brand);
   return doc;
 }
 
 
 export async function buildPaymentPdf(data: PaymentPdfData) {
   const doc=new jsPDF({unit:'mm',format:'a4'});
-  const logo=await logoDataUrl(await businessLogoUrl());
+  const brand = await businessBranding();
+  const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
 
-  header(doc,logo,'Payment Receipt');
+  header(doc,logo,'Payment Receipt',brand);
   customerBlock(doc,53,data.customerName,data.customerPhone);
   pill(doc,15,94,54,'Receipt Number',data.paymentNo);
   pill(doc,73,94,54,'Payment Date',dateText(data.paymentDate));
@@ -380,13 +494,7 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
   doc.setFont('helvetica','normal');
   doc.setFontSize(7);
   doc.text('This receipt confirms the payment recorded in the Bill Book.',105,278,{align:'center'});
-  doc.setDrawColor(...BLUE);
-  doc.setLineWidth(.7);
-  doc.line(15,284,195,284);
-  doc.setTextColor(...BLUE);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(8);
-  doc.text('Bangladesh Tours & Travels  •  Professional Travel Services',105,291,{align:'center'});
+  brandingFooter(doc,brand);
   return doc;
 }
 
