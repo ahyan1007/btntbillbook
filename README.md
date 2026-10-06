@@ -34,3 +34,6 @@ Initial schema and transaction RPCs are already applied to Supabase.
 - Company settings and exact uploaded logo
 - Vercel deployment
 - Optional automated WhatsApp Cloud API
+
+
+Build validation workflow enabled for the feature branch.
