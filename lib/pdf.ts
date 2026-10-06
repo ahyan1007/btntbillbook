@@ -285,3 +285,20 @@ export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: strin
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
   window.open('https://wa.me/?text=' + encodeURIComponent(whatsappText), '_blank', 'noopener,noreferrer');
 }
+
+
+export async function sendPdfToWhatsApp(doc: jsPDF, fileName: string, phone?: string | null, message?: string) {
+  if (!phone) throw new Error('Customer phone number is required for WhatsApp sending.');
+  const blob = doc.output('blob');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const pdfBase64 = btoa(binary);
+  const { error } = await supabase.functions.invoke('send-whatsapp-pdf', {
+    body: { phone, fileName, caption: message || '', pdfBase64 },
+  });
+  if (error) throw new Error(error.message || 'WhatsApp send failed.');
+}
