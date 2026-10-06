@@ -5,7 +5,7 @@ import { FilePlus2,Users,WalletCards,ReceiptText,Plus,Search,LogOut,Trash2,Save,
 import { BillPdfActions, PaymentPdfActions } from '@/components/pdf-actions';
 import { CustomerLedger } from '@/components/customer-ledger';
 
-type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number};
+type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number};
 type Item={passenger_name:string;travel_date:string;service_type:string;details:string;amount:string};
 type View='dashboard'|'customers'|'bill'|'payments'|'bills';
 
