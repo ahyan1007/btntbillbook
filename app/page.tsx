@@ -13,11 +13,33 @@ type View='dashboard'|'customers'|'bill'|'payments'|'bills';
 function Brand({compact=false}:{compact?:boolean}){return <div className='flex items-center gap-3'><div className='grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white ring-1 ring-slate-200'><svg viewBox='0 0 64 64' className='h-10 w-10'><circle cx='39' cy='20' r='13' fill='#f7941d'/><path d='M13 48c10-15 21-24 38-30-9 8-17 18-24 30' fill='none' stroke='#1487c9' strokeWidth='5' strokeLinecap='round'/><path d='M24 39c-4-8-3-18 4-26M25 29c-5-3-9-3-14-1M28 23c-1-5-4-9-8-12' fill='none' stroke='#1487c9' strokeWidth='3' strokeLinecap='round'/><path d='M34 31l20-7-8 7 8 3-20 2 6-3z' fill='#1487c9'/></svg></div>{!compact&&<div><div className='text-[18px] font-black leading-none text-brand-blue'>Bangladesh Tours & Travels</div><div className='mt-1 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400'>Bill Book</div></div>}</div>}
 
 export default function Home(){
- const [session,setSession]=useState<any>(null); const [loading,setLoading]=useState(true); const [view,setView]=useState<View>('dashboard'); const [mobile,setMobile]=useState(false);
+ const [session,setSession]=useState<any>(null); const [loading,setLoading]=useState(true); const [authorizing,setAuthorizing]=useState(false); const [authorized,setAuthorized]=useState(false);
+ const [view,setView]=useState<View>('dashboard'); const [mobile,setMobile]=useState(false);
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [authMsg,setAuthMsg]=useState('');
- useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)});const {data:l}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));return()=>l.subscription.unsubscribe()},[]);
- if(loading)return <div className='grid min-h-screen place-items-center'>Loading...</div>;
- if(!session)return <Auth email={email} setEmail={setEmail} password={password} setPassword={setPassword} msg={authMsg} setMsg={setAuthMsg}/>;
+ useEffect(()=>{
+  let active=true;
+  supabase.auth.getSession().then(({data})=>{if(active){setSession(data.session);setLoading(false)}});
+  const {data:l}=supabase.auth.onAuthStateChange((_e,s)=>{if(active)setSession(s)});
+  return()=>{active=false;l.subscription.unsubscribe()};
+ },[]);
+ useEffect(()=>{
+  if(!session){setAuthorized(false);setAuthorizing(false);return}
+  let active=true;
+  setAuthorizing(true);
+  supabase.from('admin_users').select('role').eq('user_id',session.user.id).maybeSingle().then(async({data,error})=>{
+    if(!active)return;
+    const ok=!error&&data?.role==='admin';
+    setAuthorized(!!ok);
+    setAuthorizing(false);
+    if(!ok){
+      await supabase.auth.signOut();
+      if(active){setSession(null);setAuthMsg('This account is not authorized as an admin.')}
+    }
+  });
+  return()=>{active=false};
+ },[session]);
+ if(loading||authorizing)return <div className='grid min-h-screen place-items-center p-6 text-sm text-slate-500'>{authorizing?'Checking admin access...':'Loading...'}</div>;
+ if(!session||!authorized)return <Auth email={email} setEmail={setEmail} password={password} setPassword={setPassword} msg={authMsg} setMsg={setAuthMsg}/>;
  return <Shell view={view} setView={setView} mobile={mobile} setMobile={setMobile}><Content view={view}/></Shell>;
 }
 
