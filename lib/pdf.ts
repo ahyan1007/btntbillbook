@@ -59,6 +59,8 @@ const DEFAULT_BRANDING: PdfBranding = {
   footer_text: 'Professional Travel Services',
   pdf_template: 'travel',
   show_logo: true,
+  primary_color: '#0f172a',
+  accent_color: '#f7941d',
 };
 
 const BLUE = [20, 135, 201] as const;
