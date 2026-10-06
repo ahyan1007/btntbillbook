@@ -25,12 +25,12 @@ export function CustomerLedger({customerId,onClose}:Props){
     load();
   },[customerId]);
 
-  return <div className='fixed inset-0 z-50 overflow-y-auto bg-slate-900/30 p-4'><div className='mx-auto my-6 max-w-4xl rounded-3xl bg-white shadow-2xl'>
-    <div className='sticky top-0 flex items-center justify-between rounded-t-3xl border-b border-slate-100 bg-white p-5'>
-      <div><p className='text-xs font-black uppercase tracking-widest text-brand-blue'>Customer Ledger</p><h2 className='mt-1 text-2xl font-black'>{customer?.name||'Loading...'}</h2><p className='mt-1 text-xs text-slate-400'>{customer?.phone||'No mobile'}</p></div>
-      <button onClick={onClose} className='rounded-xl p-2 text-slate-400 hover:bg-slate-50'><X/></button>
+  return <div className='fixed inset-0 z-50 overflow-y-auto bg-slate-900/30 p-0 sm:p-4'><div className='min-h-screen bg-white sm:mx-auto sm:my-6 sm:min-h-0 sm:max-w-4xl sm:rounded-3xl sm:shadow-2xl'>
+    <div className='sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white p-4 sm:rounded-t-3xl sm:p-5'>
+      <div className='min-w-0 pr-3'><p className='text-xs font-black uppercase tracking-widest text-brand-blue'>Customer Ledger</p><h2 className='mt-1 truncate text-xl font-black sm:text-2xl'>{customer?.name||'Loading...'}</h2><p className='mt-1 truncate text-xs text-slate-400'>{customer?.phone||'No mobile'}</p></div>
+      <button onClick={onClose} className='grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-slate-50' aria-label='Close ledger'><X size={21}/></button>
     </div>
-    {loading?<div className='p-10 text-center text-sm text-slate-400'>Loading ledger...</div>:<div className='p-5'>
+    {loading?<div className='p-10 text-center text-sm text-slate-400'>Loading ledger...</div>:<div className='p-4 sm:p-5'>
       <div className='grid gap-3 md:grid-cols-3'>
         <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Current Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>৳ {Number(customer?.current_due||0).toLocaleString('en-IN')}</p></div>
         <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Bills</p><p className='mt-1 text-2xl font-black'>{bills.length}</p></div>
