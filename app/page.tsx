@@ -16,7 +16,7 @@ export default function Home(){
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [authMsg,setAuthMsg]=useState('');
  useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)});const {data:l}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));return()=>l.subscription.unsubscribe()},[]);
  if(loading)return <div className='grid min-h-screen place-items-center'>Loading...</div>;
- if(!session)return <Auth email={email} setEmail={setEmail} password={password} setPassword={setPassword} signup={signup} setSignup={setSignup} msg={authMsg} setMsg={setAuthMsg}/>;
+ if(!session)return <Auth email={email} setEmail={setEmail} password={password} setPassword={setPassword} msg={authMsg} setMsg={setAuthMsg}/>;
  return <Shell view={view} setView={setView} mobile={mobile} setMobile={setMobile}><Content view={view}/></Shell>;
 }
 
