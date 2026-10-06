@@ -31,7 +31,7 @@ export function BillPdfActions({data}:{data:BillPdfData}) {
       if(direct) await sendPdfToWhatsApp(doc,fileName,data.customerPhone,message); else if(direct) await sendPdfToWhatsApp(doc,fileName,data.customerPhone,message); else if(direct) await sendPdfToWhatsApp(doc,fileName,data.customerPhone,message); else if(whatsapp) await sharePdf(doc,fileName,message); else doc.save(fileName);
     } finally { setBusy(false); }
   }
-  return <div className='flex flex-col gap-2 sm:flex-row'><button disabled={busy} onClick={()=>run(false)} className='btn btn-secondary'><FileDown size={17}/>{busy?'Preparing...':'Download PDF'}</button><button disabled={busy} onClick={async()=>{try{await run(false,true);alert('PDF sent to customer WhatsApp successfully.')}catch(e){alert(e instanceof Error?e.message:'WhatsApp send failed.')}}} className='btn btn-primary'><MessageCircle size={17}/>{busy?'Sending...':'Send on WhatsApp'}</button></div>;
+  return <div className='flex flex-col gap-2 sm:flex-row'><button disabled={busy} onClick={()=>run(false)} className='btn btn-secondary'><FileDown size={17}/>{busy?'Preparing...':'Download PDF'}</button><button disabled={busy} onClick={()=>run(true)} className='btn btn-secondary'><MessageCircle size={17}/>{busy?'Opening...':'Share on WhatsApp Web'}</button><button disabled={busy} onClick={async()=>{try{await run(false,true);alert('PDF sent to customer WhatsApp successfully.')}catch(e){alert(e instanceof Error?e.message:'WhatsApp send failed.')}}} className='btn btn-primary'><MessageCircle size={17}/>{busy?'Sending...':'Send on WhatsApp'}</button></div>;
 }
 
 export function PaymentPdfActions({data}:{data:PaymentPdfData}) {
@@ -45,5 +45,5 @@ export function PaymentPdfActions({data}:{data:PaymentPdfData}) {
       if(whatsapp) await sharePdf(doc,fileName,message); else doc.save(fileName);
     } finally { setBusy(false); }
   }
-  return <div className='flex flex-col gap-2 sm:flex-row'><button disabled={busy} onClick={()=>run(false)} className='btn btn-secondary'><FileDown size={17}/>{busy?'Preparing...':'Download Receipt'}</button><button disabled={busy} onClick={async()=>{try{await run(false,true);alert('Receipt sent to customer WhatsApp successfully.')}catch(e){alert(e instanceof Error?e.message:'WhatsApp send failed.')}}} className='btn btn-primary'><MessageCircle size={17}/>{busy?'Sending...':'Send on WhatsApp'}</button></div>;
+  return <div className='flex flex-col gap-2 sm:flex-row'><button disabled={busy} onClick={()=>run(false)} className='btn btn-secondary'><FileDown size={17}/>{busy?'Preparing...':'Download Receipt'}</button><button disabled={busy} onClick={()=>run(true)} className='btn btn-secondary'><MessageCircle size={17}/>{busy?'Opening...':'Share on WhatsApp Web'}</button><button disabled={busy} onClick={async()=>{try{await run(false,true);alert('Receipt sent to customer WhatsApp successfully.')}catch(e){alert(e instanceof Error?e.message:'WhatsApp send failed.')}}} className='btn btn-primary'><MessageCircle size={17}/>{busy?'Sending...':'Send on WhatsApp'}</button></div>;
 }
