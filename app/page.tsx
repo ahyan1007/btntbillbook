@@ -56,7 +56,7 @@ function Dashboard(){
  const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null});
  useEffect(()=>{
   supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8).then(({data})=>setRows((data as Customer[])||[]));
-  supabase.from('business_settings').select('*').maybeSingle().then(({data})=>{if(data)setBrand((prev:any)=>({...prev,...data}))});
+  supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle().then(({data})=>{if(data)setBrand((prev:any)=>({...prev,...data}))});
  },[]);
  async function uploadLogo(file:File){
   const allowed=['image/png','image/jpeg','image/webp','image/svg+xml'];
