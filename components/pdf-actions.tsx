@@ -117,6 +117,61 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
   );
 }
 
+export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
+  const [busyAction, setBusyAction] = useState<'download' | 'web' | null>(null);
+
+  async function run(action: 'download' | 'web') {
+    setBusyAction(action);
+    try {
+      const doc = await buildBillPdf(data);
+      const fileName = data.billNo + '.pdf';
+      const message =
+        'Bangladesh Tours & Travels\\nBill ' +
+        data.billNo +
+        '\\nCustomer: ' +
+        data.customerName +
+        '\\nToday\'s Bill: BDT ' +
+        data.subtotal.toLocaleString('en-IN') +
+        '\\nTotal Due: BDT ' +
+        data.totalDue.toLocaleString('en-IN') +
+        '\\nPlease find the bill attached.';
+
+      if (action === 'web') {
+        await sharePdf(doc, fileName, message);
+      } else {
+        doc.save(fileName);
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  return (
+    <div className='flex flex-wrap items-center justify-end gap-2'>
+      <button
+        disabled={busyAction !== null}
+        onClick={() => void run('download')}
+        className='rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50'
+      >
+        <span className='inline-flex items-center gap-1.5'>
+          <FileDown size={15} />
+          {busyAction === 'download' ? 'Preparing...' : 'PDF'}
+        </span>
+      </button>
+      <button
+        disabled={busyAction !== null}
+        onClick={() => void run('web')}
+        className='rounded-lg bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-90'
+      >
+        <span className='inline-flex items-center gap-1.5'>
+          <MessageCircle size={15} />
+          {busyAction === 'web' ? 'Opening...' : 'Share PDF'}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
 
