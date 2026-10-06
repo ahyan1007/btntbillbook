@@ -235,6 +235,7 @@ export async function buildBillPdf(data: BillPdfData) {
   y+=18;
 
   doc.setFontSize(8);
+  let itemIndex = 0;
   for(const item of data.items){
     const detail=[item.service_type||'Travel Service',item.details].filter(Boolean).join('  ·  ');
     const lines=doc.splitTextToSize(detail,66);
@@ -244,7 +245,7 @@ export async function buildBillPdf(data: BillPdfData) {
       header(doc,logo,'Booking Bill');
       y=58;
     }
-    const rowFill = index % 2 === 0 ? [249,251,253] : [244,248,252];
+    const rowFill = itemIndex % 2 === 0 ? [249,251,253] : [244,248,252];
     doc.setFillColor(rowFill[0], rowFill[1], rowFill[2]);
     doc.setDrawColor(226,232,240);
     doc.roundedRect(15,y-6,180,rowH,2.5,2.5,'FD');
@@ -252,7 +253,7 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.8);
-    doc.text(String(index + 1),20,y+1);
+    doc.text(String(itemIndex + 1),20,y+1);
 
     doc.setTextColor(...INK);
     doc.setFontSize(7.5);
@@ -268,6 +269,7 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setFont('helvetica','bold');
     doc.text(money(item.amount),190,y+1,{align:'right'});
     y+=rowH+2;
+    itemIndex += 1;
   }
 
   y=Math.max(y+7,190);
