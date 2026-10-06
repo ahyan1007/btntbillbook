@@ -147,41 +147,61 @@ function header(doc: jsPDF, logo: string | null, title: string) {
 }
 
 function pill(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
-  doc.setFillColor(248,250,252);
-  doc.roundedRect(x,y,w,19,3,3,'F');
+  doc.setFillColor(247,250,254);
+  doc.setDrawColor(226,234,243);
+  doc.roundedRect(x,y,w,19,3.5,3.5,'FD');
+
+  doc.setFillColor(...ORANGE);
+  doc.roundedRect(x+5,y+5,3,9,1.2,1.2,'F');
+
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(6.5);
-  doc.text(label.toUpperCase(), x+6, y+7);
+  doc.setFontSize(6);
+  doc.text(label.toUpperCase(), x+11, y+7);
+
   doc.setTextColor(...INK);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(8.5);
-  doc.text(value || '—', x+6, y+14);
+  doc.setFontSize(8.3);
+  doc.text(value || '—', x+11, y+14);
 }
 
 function customerBlock(doc: jsPDF, y: number, name: string, phone?: string | null, address?: string | null) {
-  doc.setFillColor(248,250,252);
-  doc.setDrawColor(226,232,240);
+  doc.setFillColor(247,250,254);
+  doc.setDrawColor(220,231,242);
   doc.roundedRect(15,y,180,35,5,5,'FD');
 
-  doc.setFillColor(...BLUE);
-  doc.roundedRect(15,y,4,35,2,2,'F');
-
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(6.5);
-  doc.text('BILLED TO', 25, y+9);
+  doc.setFillColor(...ORANGE);
+  doc.roundedRect(19,y+5,8,8,2,2,'F');
 
   doc.setTextColor(...INK);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(13);
-  doc.text(name || 'Customer', 25, y+19);
+  doc.setFontSize(7.4);
+  doc.text('BILLED TO', 32, y+11);
 
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(7.5);
+  doc.setTextColor(...INK);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(11.5);
+  doc.text(name || 'Customer', 21, y+21);
+
   doc.setTextColor(...MUTED);
-  if (phone) doc.text('Mobile  ' + phone, 25, y+28);
-  if (address) doc.text(doc.splitTextToSize(address, 82), 105, y+12);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7.2);
+  if (phone) doc.text(phone, 21, y+29);
+
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(230,236,243);
+  doc.roundedRect(111,y+5,79,25,4,4,'FD');
+
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(6.1);
+  doc.text('ADDRESS', 117, y+12);
+
+  doc.setTextColor(...INK);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7);
+  const addressLines = doc.splitTextToSize(address || '—', 66);
+  doc.text(addressLines.slice(0,2), 117, y+19);
 }
 
 
