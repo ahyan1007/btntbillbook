@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileDown, MessageCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -44,35 +44,79 @@ async function sendPdfToWhatsApp(
 
 export function BillPdfActions({ data }: { data: BillPdfData }) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [preparedDoc, setPreparedDoc] = useState<any>(null);
+  const [preparing, setPreparing] = useState(true);
 
-  async function run(action: Exclude<BusyAction, null>) {
-    setBusyAction(action);
+  const dataKey = JSON.stringify(data);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setPreparing(true);
+    setPreparedDoc(null);
+
+    buildBillPdf(data)
+      .then((doc) => {
+        if (!cancelled) {
+          setPreparedDoc(doc);
+          setPreparing(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPreparing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataKey]);
+
+  const fileName = data.billNo + '.pdf';
+  const message =
+    'Bangladesh Tours & Travels\nBill ' +
+    data.billNo +
+    '\nCustomer: ' +
+    data.customerName +
+    '\nToday\'s Bill: BDT ' +
+    data.subtotal.toLocaleString('en-IN') +
+    '\nTotal Due: BDT ' +
+    data.totalDue.toLocaleString('en-IN') +
+    '\nPlease find the bill attached.';
+
+  async function download() {
+    setBusyAction('download');
     try {
-      const doc = await buildBillPdf(data);
-      const fileName = data.billNo + '.pdf';
-      const message =
-        'Bangladesh Tours & Travels\\nBill ' +
-        data.billNo +
-        '\\nCustomer: ' +
-        data.customerName +
-        '\\nToday\'s Bill: BDT ' +
-        data.subtotal.toLocaleString('en-IN') +
-        '\\nTotal Due: BDT ' +
-        data.totalDue.toLocaleString('en-IN') +
-        '\\nPlease find the bill attached.';
-
-      if (action === 'direct') {
-        await sendPdfToWhatsApp(doc, fileName, data.customerPhone, message);
-        return;
-      }
-
-      if (action === 'web') {
-        await sharePdf(doc, fileName, message);
-        return;
-      }
-
+      const doc = preparedDoc || (await buildBillPdf(data));
       doc.save(fileName);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function shareWeb() {
+    if (!preparedDoc) {
+      alert('PDF is still preparing. Please tap Share PDF again in a moment.');
+      return;
+    }
+
+    // IMPORTANT: navigator.share() must happen directly from the user gesture.
+    // The PDF is pre-generated above the click, so there is no async build before share.
+    setBusyAction('web');
+    try {
+      await sharePdf(preparedDoc, fileName, message);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function directSend() {
+    setBusyAction('direct');
+    try {
+      const doc = preparedDoc || (await buildBillPdf(data));
+      await sendPdfToWhatsApp(doc, fileName, data.customerPhone, message);
+      alert('PDF sent to customer WhatsApp successfully.');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'WhatsApp send failed.');
     } finally {
       setBusyAction(null);
     }
@@ -81,37 +125,30 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
   return (
     <div className='flex flex-col gap-2 sm:flex-row'>
       <button
-        disabled={busyAction !== null}
-        onClick={() => void run('download')}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void download()}
         className='btn btn-secondary'
       >
         <FileDown size={17} />
-        {busyAction === 'download' ? 'Preparing...' : 'Download PDF'}
+        {preparing ? 'Preparing PDF...' : busyAction === 'download' ? 'Preparing...' : 'Download PDF'}
       </button>
 
       <button
-        disabled={busyAction !== null}
-        onClick={() => void run('web')}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void shareWeb()}
         className='btn btn-secondary'
       >
         <MessageCircle size={17} />
-        {busyAction === 'web' ? 'Opening...' : 'Share on WhatsApp Web'}
+        {preparing ? 'Preparing Share...' : busyAction === 'web' ? 'Opening Share...' : 'Share PDF'}
       </button>
 
       <button
-        disabled={busyAction !== null}
-        onClick={async () => {
-          try {
-            await run('direct');
-            alert('PDF sent to customer WhatsApp successfully.');
-          } catch (e) {
-            alert(e instanceof Error ? e.message : 'WhatsApp send failed.');
-          }
-        }}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void directSend()}
         className='btn btn-primary'
       >
         <MessageCircle size={17} />
-        {busyAction === 'direct' ? 'Sending...' : 'Send on WhatsApp'}
+        {preparing ? 'Preparing PDF...' : busyAction === 'direct' ? 'Sending...' : 'Send on WhatsApp'}
       </button>
     </div>
   );
@@ -119,27 +156,57 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
 
 export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
   const [busyAction, setBusyAction] = useState<'download' | 'web' | null>(null);
+  const [preparedDoc, setPreparedDoc] = useState<any>(null);
+  const [preparing, setPreparing] = useState(true);
+
+  const dataKey = JSON.stringify(data);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setPreparing(true);
+    setPreparedDoc(null);
+
+    buildBillPdf(data)
+      .then((doc) => {
+        if (!cancelled) {
+          setPreparedDoc(doc);
+          setPreparing(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPreparing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataKey]);
+
+  const fileName = data.billNo + '.pdf';
+  const message =
+    'Bangladesh Tours & Travels\nBill ' +
+    data.billNo +
+    '\nCustomer: ' +
+    data.customerName +
+    '\nToday\'s Bill: BDT ' +
+    data.subtotal.toLocaleString('en-IN') +
+    '\nTotal Due: BDT ' +
+    data.totalDue.toLocaleString('en-IN') +
+    '\nPlease find the bill attached.';
 
   async function run(action: 'download' | 'web') {
+    if (!preparedDoc) {
+      alert('PDF is still preparing. Please tap again in a moment.');
+      return;
+    }
+
     setBusyAction(action);
     try {
-      const doc = await buildBillPdf(data);
-      const fileName = data.billNo + '.pdf';
-      const message =
-        'Bangladesh Tours & Travels\\nBill ' +
-        data.billNo +
-        '\\nCustomer: ' +
-        data.customerName +
-        '\\nToday\'s Bill: BDT ' +
-        data.subtotal.toLocaleString('en-IN') +
-        '\\nTotal Due: BDT ' +
-        data.totalDue.toLocaleString('en-IN') +
-        '\\nPlease find the bill attached.';
-
       if (action === 'web') {
-        await sharePdf(doc, fileName, message);
+        await sharePdf(preparedDoc, fileName, message);
       } else {
-        doc.save(fileName);
+        preparedDoc.save(fileName);
       }
     } finally {
       setBusyAction(null);
@@ -149,23 +216,23 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
   return (
     <div className='flex flex-wrap items-center justify-end gap-2'>
       <button
-        disabled={busyAction !== null}
+        disabled={busyAction !== null || preparing}
         onClick={() => void run('download')}
         className='rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50'
       >
         <span className='inline-flex items-center gap-1.5'>
           <FileDown size={15} />
-          {busyAction === 'download' ? 'Preparing...' : 'PDF'}
+          {preparing ? 'Preparing...' : busyAction === 'download' ? 'Preparing...' : 'PDF'}
         </span>
       </button>
       <button
-        disabled={busyAction !== null}
+        disabled={busyAction !== null || preparing}
         onClick={() => void run('web')}
         className='rounded-lg bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-90'
       >
         <span className='inline-flex items-center gap-1.5'>
           <MessageCircle size={15} />
-          {busyAction === 'web' ? 'Opening...' : 'Share PDF'}
+          {preparing ? 'Preparing...' : busyAction === 'web' ? 'Opening...' : 'Share PDF'}
         </span>
       </button>
     </div>
@@ -174,35 +241,77 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
 
 export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [preparedDoc, setPreparedDoc] = useState<any>(null);
+  const [preparing, setPreparing] = useState(true);
 
-  async function run(action: Exclude<BusyAction, null>) {
-    setBusyAction(action);
+  const dataKey = JSON.stringify(data);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setPreparing(true);
+    setPreparedDoc(null);
+
+    buildPaymentPdf(data)
+      .then((doc) => {
+        if (!cancelled) {
+          setPreparedDoc(doc);
+          setPreparing(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPreparing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataKey]);
+
+  const fileName = data.paymentNo + '.pdf';
+  const message =
+    'Bangladesh Tours & Travels\nPayment Receipt ' +
+    data.paymentNo +
+    '\nCustomer: ' +
+    data.customerName +
+    '\nReceived: BDT ' +
+    data.amount.toLocaleString('en-IN') +
+    '\nRemaining Due: BDT ' +
+    data.remainingDue.toLocaleString('en-IN') +
+    '\nPlease find the receipt attached.';
+
+  async function download() {
+    setBusyAction('download');
     try {
-      const doc = await buildPaymentPdf(data);
-      const fileName = data.paymentNo + '.pdf';
-      const message =
-        'Bangladesh Tours & Travels\\nPayment Receipt ' +
-        data.paymentNo +
-        '\\nCustomer: ' +
-        data.customerName +
-        '\\nReceived: BDT ' +
-        data.amount.toLocaleString('en-IN') +
-        '\\nRemaining Due: BDT ' +
-        data.remainingDue.toLocaleString('en-IN') +
-        '\\nPlease find the receipt attached.';
-
-      if (action === 'direct') {
-        await sendPdfToWhatsApp(doc, fileName, data.customerPhone, message);
-        return;
-      }
-
-      if (action === 'web') {
-        await sharePdf(doc, fileName, message);
-        return;
-      }
-
+      const doc = preparedDoc || (await buildPaymentPdf(data));
       doc.save(fileName);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function shareWeb() {
+    if (!preparedDoc) {
+      alert('PDF is still preparing. Please tap Share PDF again in a moment.');
+      return;
+    }
+
+    setBusyAction('web');
+    try {
+      await sharePdf(preparedDoc, fileName, message);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function directSend() {
+    setBusyAction('direct');
+    try {
+      const doc = preparedDoc || (await buildPaymentPdf(data));
+      await sendPdfToWhatsApp(doc, fileName, data.customerPhone, message);
+      alert('Receipt sent to customer WhatsApp successfully.');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'WhatsApp send failed.');
     } finally {
       setBusyAction(null);
     }
@@ -211,37 +320,30 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
   return (
     <div className='flex flex-col gap-2 sm:flex-row'>
       <button
-        disabled={busyAction !== null}
-        onClick={() => void run('download')}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void download()}
         className='btn btn-secondary'
       >
         <FileDown size={17} />
-        {busyAction === 'download' ? 'Preparing...' : 'Download Receipt'}
+        {preparing ? 'Preparing PDF...' : busyAction === 'download' ? 'Preparing...' : 'Download Receipt'}
       </button>
 
       <button
-        disabled={busyAction !== null}
-        onClick={() => void run('web')}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void shareWeb()}
         className='btn btn-secondary'
       >
         <MessageCircle size={17} />
-        {busyAction === 'web' ? 'Opening...' : 'Share on WhatsApp Web'}
+        {preparing ? 'Preparing Share...' : busyAction === 'web' ? 'Opening Share...' : 'Share PDF'}
       </button>
 
       <button
-        disabled={busyAction !== null}
-        onClick={async () => {
-          try {
-            await run('direct');
-            alert('Receipt sent to customer WhatsApp successfully.');
-          } catch (e) {
-            alert(e instanceof Error ? e.message : 'WhatsApp send failed.');
-          }
-        }}
+        disabled={busyAction !== null || preparing}
+        onClick={() => void directSend()}
         className='btn btn-primary'
       >
         <MessageCircle size={17} />
-        {busyAction === 'direct' ? 'Sending...' : 'Send on WhatsApp'}
+        {preparing ? 'Preparing PDF...' : busyAction === 'direct' ? 'Sending...' : 'Send on WhatsApp'}
       </button>
     </div>
   );
