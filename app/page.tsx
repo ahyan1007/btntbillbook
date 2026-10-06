@@ -55,7 +55,7 @@ function Dashboard(){
  const [customerDueCount,setCustomerDueCount]=useState(0);
  const [uploading,setUploading]=useState(false);
  const [savingBrand,setSavingBrand]=useState(false);
- const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null});
+ const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null,primary_color:'#0f172a',accent_color:'#f7941d'});
  useEffect(()=>{
   Promise.all([
     supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8),
@@ -102,6 +102,8 @@ function Dashboard(){
    footer_text:brand.footer_text||null,
    pdf_template:brand.pdf_template,
    show_logo:!!brand.show_logo,
+   primary_color:brand.primary_color||'#0f172a',
+   accent_color:brand.accent_color||'#f7941d',
    updated_at:new Date().toISOString()
   };
   const {error}=await supabase.from('business_settings').upsert(payload);
@@ -140,6 +142,8 @@ function Dashboard(){
        <div><label className='label'>Email</label><input className='field' type='email' value={brand.email||''} onChange={e=>setField('email',e.target.value)} placeholder='info@example.com' /></div>
        <div><label className='label'>Website</label><input className='field' value={brand.website||''} onChange={e=>setField('website',e.target.value)} placeholder='www.example.com' /></div>
        <div><label className='label'>Footer text</label><input className='field' value={brand.footer_text||''} onChange={e=>setField('footer_text',e.target.value)} placeholder='Professional Travel Services' /></div>
+       <div><label className='label'>Primary color</label><div className='flex gap-3'><input type='color' value={brand.primary_color||'#0f172a'} onChange={e=>setField('primary_color',e.target.value)} className='h-12 w-14 rounded-xl border border-slate-200 bg-white p-1'/><input className='field' value={brand.primary_color||'#0f172a'} onChange={e=>setField('primary_color',e.target.value)} /></div></div>
+       <div><label className='label'>Accent color</label><div className='flex gap-3'><input type='color' value={brand.accent_color||'#f7941d'} onChange={e=>setField('accent_color',e.target.value)} className='h-12 w-14 rounded-xl border border-slate-200 bg-white p-1'/><input className='field' value={brand.accent_color||'#f7941d'} onChange={e=>setField('accent_color',e.target.value)} /></div></div>
       </div>
       <label className='flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-700'>
        <input type='checkbox' checked={brand.show_logo!==false} onChange={e=>setField('show_logo',e.target.checked)} className='h-4 w-4'/> Show logo on PDF
