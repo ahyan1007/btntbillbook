@@ -80,195 +80,222 @@ async function logoDataUrl(customUrl?: string | null) {
 }
 
 function header(doc: jsPDF, logo: string | null, title: string) {
-  doc.setFillColor(...BLUE);
-  doc.rect(0, 0, 210, 5, 'F');
-  if (logo) doc.addImage(logo, 'PNG', 15, 12, 72, 31);
-  doc.setTextColor(...INK);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('Bangladesh Tours & Travels', 195, 21, { align: 'right' });
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Professional Travel Services & Billing', 195, 28, { align: 'right' });
+  // Premium navy header with orange accent
+  doc.setFillColor(...INK);
+  doc.rect(0, 0, 210, 42, 'F');
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 0, 210, 3, 'F');
+
+  if (logo) doc.addImage(logo, 'PNG', 15, 9, 58, 24);
+
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(15);
+  doc.text('Bangladesh Tours & Travels', 195, 16, {align:'right'});
+  doc.setTextColor(203,213,225);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7.5);
+  doc.text('PROFESSIONAL TRAVEL SERVICES', 195, 23, {align:'right'});
   doc.setTextColor(...ORANGE);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(title.toUpperCase(), 195, 38, { align: 'right' });
-  doc.setDrawColor(...LIGHT);
-  doc.line(15, 48, 195, 48);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(10);
+  doc.text(title.toUpperCase(), 195, 34, {align:'right'});
+
+  doc.setFillColor(248,250,252);
+  doc.rect(0, 42, 210, 3, 'F');
+}
+
+function pill(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
+  doc.setFillColor(248,250,252);
+  doc.roundedRect(x,y,w,19,3,3,'F');
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(6.5);
+  doc.text(label.toUpperCase(), x+6, y+7);
+  doc.setTextColor(...INK);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(8.5);
+  doc.text(value || '—', x+6, y+14);
 }
 
 function customerBlock(doc: jsPDF, y: number, name: string, phone?: string | null, address?: string | null) {
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(15, y, 180, 31, 4, 4, 'F');
+  doc.setFillColor(248,250,252);
+  doc.setDrawColor(226,232,240);
+  doc.roundedRect(15,y,180,35,5,5,'FD');
+
+  doc.setFillColor(...BLUE);
+  doc.roundedRect(15,y,4,35,2,2,'F');
+
   doc.setTextColor(...MUTED);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('CUSTOMER', 22, y + 9);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(6.5);
+  doc.text('BILLED TO', 25, y+9);
+
   doc.setTextColor(...INK);
-  doc.setFontSize(12);
-  doc.text(name || 'Customer', 22, y + 19);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  if (phone) doc.text('Mobile: ' + phone, 105, y + 10);
-  if (address) doc.text(doc.splitTextToSize(address, 85), 105, y + 20);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(13);
+  doc.text(name || 'Customer', 25, y+19);
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...MUTED);
+  if (phone) doc.text('Mobile  ' + phone, 25, y+28);
+  if (address) doc.text(doc.splitTextToSize(address, 82), 105, y+12);
 }
+
 
 async function businessLogoUrl() { const { data } = await supabase.from('business_settings').select('logo_url').maybeSingle(); return data?.logo_url || null; }
 
 export async function buildBillPdf(data: BillPdfData) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({unit:'mm',format:'a4'});
   const logo = await logoDataUrl(await businessLogoUrl());
-  header(doc, logo, 'Booking Bill');
-  customerBlock(doc, 56, data.customerName, data.customerPhone, data.customerAddress);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.text('BILL NO.', 15, 96);
-  doc.text('BILL DATE', 75, 96);
-  doc.setTextColor(...INK);
-  doc.setFontSize(10);
-  doc.text(data.billNo, 15, 103);
-  doc.text(dateText(data.billDate), 75, 103);
+  header(doc,logo,'Booking Bill');
+  customerBlock(doc,53,data.customerName,data.customerPhone,data.customerAddress);
+  pill(doc,15,94,54,'Bill Number',data.billNo);
+  pill(doc,73,94,54,'Bill Date',dateText(data.billDate));
+  pill(doc,131,94,64,'Document','Booking Bill');
 
-  let y = 114;
-  doc.setFillColor(...BLUE);
-  doc.roundedRect(15, y, 180, 10, 2, 2, 'F');
+  let y=123;
+  doc.setFillColor(...INK);
+  doc.roundedRect(15,y,180,11,2,2,'F');
   doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
+  doc.setFontSize(7);
+  doc.text('PASSENGER',20,y+7);
+  doc.text('TRAVEL DATE',67,y+7);
+  doc.text('SERVICE / DETAILS',105,y+7);
+  doc.text('AMOUNT',190,y+7,{align:'right'});
+  y+=17;
+
   doc.setFontSize(8);
-  doc.text('PASSENGER', 20, y + 6.5);
-  doc.text('DATE', 78, y + 6.5);
-  doc.text('SERVICE / DETAILS', 111, y + 6.5);
-  doc.text('AMOUNT', 190, y + 6.5, { align:'right' });
-  y += 15;
-
-  doc.setFont('helvetica','normal');
-  doc.setTextColor(...INK);
-  doc.setFontSize(8.5);
-
-  for (const item of data.items) {
-    const detail = [item.service_type || 'Travel Service', item.details].filter(Boolean).join(' · ');
-    const detailLines = doc.splitTextToSize(detail, 66);
-    const rowH = Math.max(12, detailLines.length * 4.2 + 6);
-    if (y + rowH > 255) {
+  for(const item of data.items){
+    const detail=[item.service_type||'Travel Service',item.details].filter(Boolean).join('  ·  ');
+    const lines=doc.splitTextToSize(detail,66);
+    const rowH=Math.max(14,lines.length*4.1+7);
+    if(y+rowH>250){
       doc.addPage();
-      header(doc, logo, 'Booking Bill');
-      y = 58;
+      header(doc,logo,'Booking Bill');
+      y=58;
     }
-    if (Math.round(y / 2) % 2 === 0) {
-      doc.setFillColor(248,250,252);
-      doc.rect(15,y-5,180,rowH,'F');
-    }
-    doc.text(item.passenger_name || 'Passenger', 20, y + 1);
-    doc.text(item.travel_date ? dateText(item.travel_date) : '—', 78, y + 1);
-    doc.text(detailLines, 111, y + 1);
+    doc.setFillColor(248,250,252);
+    doc.roundedRect(15,y-6,180,rowH,2,2,'F');
+    doc.setTextColor(...INK);
     doc.setFont('helvetica','bold');
-    doc.text(money(item.amount), 190, y + 1, { align:'right' });
+    doc.text(item.passenger_name||'Passenger',20,y+1);
     doc.setFont('helvetica','normal');
-    y += rowH;
+    doc.text(item.travel_date?dateText(item.travel_date):'—',67,y+1);
+    doc.text(lines,105,y+1);
+    doc.setFont('helvetica','bold');
+    doc.text(money(item.amount),190,y+1,{align:'right'});
+    y+=rowH+2;
   }
 
-  y = Math.max(y + 8, 190);
-  doc.setDrawColor(...LIGHT);
-  doc.line(105, y, 195, y);
-  const rows = [
-    ['Previous Due', data.previousDue],
-    ["Today's Bill", data.subtotal],
-    ['Paid Now', data.paidNow],
-  ];
-  doc.setFontSize(9);
+  y=Math.max(y+7,190);
+  doc.setDrawColor(226,232,240);
+  doc.line(105,y,195,y);
+
+  const rows=[['Previous Due',data.previousDue],["Today's Bill",data.subtotal],['Paid Now',data.paidNow]];
   rows.forEach(([label,value],i)=>{
     doc.setTextColor(...MUTED);
-    doc.text(String(label), 112, y + 9 + i*8);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.text(String(label),112,y+9+i*8);
     doc.setTextColor(...INK);
-    doc.text(money(Number(value)), 190, y + 9 + i*8, {align:'right'});
+    doc.setFont('helvetica','bold');
+    doc.text(money(Number(value)),190,y+9+i*8,{align:'right'});
   });
+
   doc.setFillColor(...ORANGE);
-  doc.roundedRect(105, y + 35, 90, 16, 3, 3, 'F');
+  doc.roundedRect(105,y+35,90,18,4,4,'F');
   doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
-  doc.text('TOTAL DUE', 112, y + 45);
-  doc.text(money(data.totalDue), 190, y + 45, {align:'right'});
+  doc.setFontSize(7);
+  doc.text('TOTAL OUTSTANDING',112,y+43);
+  doc.setFontSize(11);
+  doc.text(money(data.totalDue),190,y+44,{align:'right'});
 
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(8);
-  doc.text('Thank you for choosing Bangladesh Tours & Travels.', 105, 278, {align:'center'});
+  doc.setFontSize(7);
+  doc.text('Thank you for choosing Bangladesh Tours & Travels.',105,278,{align:'center'});
   doc.setDrawColor(...BLUE);
-  doc.line(15, 284, 195, 284);
+  doc.setLineWidth(.7);
+  doc.line(15,284,195,284);
   doc.setTextColor(...BLUE);
   doc.setFont('helvetica','bold');
-  doc.text('Bangladesh Tours & Travels', 105, 291, {align:'center'});
+  doc.setFontSize(8);
+  doc.text('Bangladesh Tours & Travels  •  Professional Travel Services',105,291,{align:'center'});
   return doc;
 }
 
-export async function buildPaymentPdf(data: PaymentPdfData) {
-  const doc = new jsPDF({ unit:'mm', format:'a4' });
-  const logo = await logoDataUrl(await businessLogoUrl());
-  header(doc, logo, 'Payment Receipt');
-  customerBlock(doc, 56, data.customerName, data.customerPhone);
 
+export async function buildPaymentPdf(data: PaymentPdfData) {
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const logo=await logoDataUrl(await businessLogoUrl());
+
+  header(doc,logo,'Payment Receipt');
+  customerBlock(doc,53,data.customerName,data.customerPhone);
+  pill(doc,15,94,54,'Receipt Number',data.paymentNo);
+  pill(doc,73,94,54,'Payment Date',dateText(data.paymentDate));
+  pill(doc,131,94,64,'Payment Method',data.method||'Cash');
+
+  doc.setFillColor(...INK);
+  doc.roundedRect(15,122,180,54,6,6,'F');
+  doc.setTextColor(203,213,225);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.text('RECEIPT NO.', 15, 96);
-  doc.text('PAYMENT DATE', 80, 96);
-  doc.setTextColor(...INK);
-  doc.setFontSize(10);
-  doc.text(data.paymentNo, 15, 103);
-  doc.text(dateText(data.paymentDate), 80, 103);
+  doc.setFontSize(7);
+  doc.text('PAYMENT RECEIVED',25,134);
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(23);
+  doc.text(money(data.amount),25,149);
+  doc.setTextColor(...ORANGE);
+  doc.setFontSize(8);
+  doc.text('PAYMENT CONFIRMED',25,164);
 
   doc.setFillColor(248,250,252);
-  doc.roundedRect(15, 118, 180, 74, 5, 5, 'F');
-  doc.setTextColor(...MUTED);
-  doc.setFontSize(9);
-  doc.text('AMOUNT RECEIVED', 25, 132);
-  doc.setTextColor(...ORANGE);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(26);
-  doc.text(money(data.amount), 25, 148);
+  doc.setDrawColor(226,232,240);
+  doc.roundedRect(15,184,180,42,5,5,'FD');
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(9);
-  doc.text('Payment Method', 25, 164);
+  doc.setFontSize(8);
+  doc.text('Previous Due',25,197);
+  doc.text('Payment Received',25,208);
+  doc.text('Remaining Due',25,219);
   doc.setTextColor(...INK);
   doc.setFont('helvetica','bold');
-  doc.text(data.method || 'Cash', 25, 172);
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.text('Previous Due', 115, 164);
-  doc.setTextColor(...INK);
-  doc.setFont('helvetica','bold');
-  doc.text(money(data.previousDue), 190, 164, {align:'right'});
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.text('Remaining Due', 115, 176);
+  doc.text(money(data.previousDue),190,197,{align:'right'});
+  doc.setTextColor(16,185,129);
+  doc.text('− '+money(data.amount),190,208,{align:'right'});
   doc.setTextColor(...ORANGE);
-  doc.setFont('helvetica','bold');
-  doc.text(money(data.remainingDue), 190, 176, {align:'right'});
+  doc.setFontSize(10);
+  doc.text(money(data.remainingDue),190,219,{align:'right'});
 
-  if (data.note) {
+  if(data.note){
     doc.setTextColor(...MUTED);
-    doc.setFontSize(9);
-    doc.text('Note', 15, 213);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(7);
+    doc.text('NOTE',15,241);
     doc.setTextColor(...INK);
-    doc.text(doc.splitTextToSize(data.note, 175), 15, 221);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.text(doc.splitTextToSize(data.note,180),15,248);
   }
 
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(8);
-  doc.text('This receipt confirms the payment recorded in the Bill Book.', 105, 278, {align:'center'});
+  doc.setFontSize(7);
+  doc.text('This receipt confirms the payment recorded in the Bill Book.',105,278,{align:'center'});
   doc.setDrawColor(...BLUE);
-  doc.line(15, 284, 195, 284);
+  doc.setLineWidth(.7);
+  doc.line(15,284,195,284);
   doc.setTextColor(...BLUE);
   doc.setFont('helvetica','bold');
-  doc.text('Bangladesh Tours & Travels', 105, 291, {align:'center'});
+  doc.setFontSize(8);
+  doc.text('Bangladesh Tours & Travels  •  Professional Travel Services',105,291,{align:'center'});
   return doc;
 }
+
 
 export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: string) {
   const waWindow = window.open('https://web.whatsapp.com/', '_blank');
