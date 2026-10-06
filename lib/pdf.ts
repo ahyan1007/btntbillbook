@@ -34,17 +34,32 @@ export type PaymentPdfData = {
   note?: string | null;
 };
 
-const BLUE = [13, 74, 128] as const;
-const BLUE_2 = [29, 137, 203] as const;
-const ORANGE = [247, 148, 29] as const;
-const INK = [15, 23, 42] as const;
-const MUTED = [90, 105, 125] as const;
-const LINE = [210, 222, 235] as const;
-const PALE_BLUE = [240, 247, 253] as const;
-const PALE_ORANGE = [255, 247, 236] as const;
-const PALE_GREEN = [236, 250, 243] as const;
-const GREEN = [16, 160, 100] as const;
-const WHITE = [255, 255, 255] as const;
+type Rgb = readonly [number, number, number];
+
+const NAVY: Rgb = [12, 63, 110];
+const BLUE: Rgb = [29, 137, 203];
+const ORANGE: Rgb = [247, 148, 29];
+const INK: Rgb = [15, 23, 42];
+const MUTED: Rgb = [90, 105, 125];
+const LINE: Rgb = [211, 222, 234];
+const PALE_BLUE: Rgb = [240, 247, 253];
+const PALE_ORANGE: Rgb = [255, 247, 236];
+const PALE_GREEN: Rgb = [236, 250, 243];
+const GREEN: Rgb = [16, 160, 100];
+const RED: Rgb = [220, 48, 40];
+const WHITE: Rgb = [255, 255, 255];
+
+function setFill(doc: jsPDF, color: Rgb) {
+  doc.setFillColor(color[0], color[1], color[2]);
+}
+
+function setDraw(doc: jsPDF, color: Rgb) {
+  doc.setDrawColor(color[0], color[1], color[2]);
+}
+
+function setText(doc: jsPDF, color: Rgb) {
+  doc.setTextColor(color[0], color[1], color[2]);
+}
 
 function money(value: number) {
   return 'BDT ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -53,7 +68,11 @@ function money(value: number) {
 function dateText(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 function textOrDash(value?: string | null) {
@@ -66,13 +85,14 @@ async function logoDataUrl(customUrl?: string | null) {
     const response = await fetch(sourceUrl, { cache: 'no-store' });
     if (!response.ok) throw new Error('Logo fetch failed');
 
-    const svg = sourceUrl.toLowerCase().includes('.svg') ? await response.text() : null;
+    const svg = sourceUrl.toLowerCase().endsWith('.svg') ? await response.text() : null;
     const blob = svg
       ? new Blob([svg], { type: 'image/svg+xml' })
       : await response.blob();
 
     const url = URL.createObjectURL(blob);
     const image = new Image();
+
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
       image.onerror = () => reject(new Error('Logo load failed'));
@@ -82,14 +102,15 @@ async function logoDataUrl(customUrl?: string | null) {
     const canvas = document.createElement('canvas');
     canvas.width = 1200;
     canvas.height = 420;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas unavailable');
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(url);
 
+    URL.revokeObjectURL(url);
     return canvas.toDataURL('image/png');
   } catch {
     return null;
@@ -97,95 +118,88 @@ async function logoDataUrl(customUrl?: string | null) {
 }
 
 function drawPlane(doc: jsPDF, x: number, y: number, scale = 1) {
-  doc.setDrawColor(...BLUE);
-  doc.setFillColor(...BLUE);
+  setDraw(doc, NAVY);
   doc.setLineWidth(0.7 * scale);
-
-  doc.line(x, y + 2 * scale, x + 14 * scale, y - 2 * scale);
-  doc.line(x + 14 * scale, y - 2 * scale, x + 19 * scale, y + 1 * scale);
-  doc.line(x + 14 * scale, y - 2 * scale, x + 11 * scale, y - 6 * scale);
-  doc.line(x + 10 * scale, y + 1 * scale, x + 4 * scale, y + 8 * scale);
-  doc.line(x + 10 * scale, y + 1 * scale, x + 7 * scale, y - 4 * scale);
-
-  doc.setLineWidth(0.45 * scale);
-  doc.line(x - 2 * scale, y + 4 * scale, x + 5 * scale, y + 2 * scale);
+  doc.line(x, y, x + 16 * scale, y - 4 * scale);
+  doc.line(x + 16 * scale, y - 4 * scale, x + 20 * scale, y);
+  doc.line(x + 16 * scale, y - 4 * scale, x + 12 * scale, y - 8 * scale);
+  doc.line(x + 11 * scale, y, x + 5 * scale, y + 7 * scale);
+  doc.line(x + 11 * scale, y, x + 8 * scale, y - 5 * scale);
+  doc.line(x - 2 * scale, y + 2 * scale, x + 5 * scale, y);
 }
 
-function drawTravelHeader(doc: jsPDF, logo: string | null, documentTitle: string, subtitle: string) {
-  // White premium header
-  doc.setFillColor(...WHITE);
-  doc.rect(0, 0, 210, 58, 'F');
+function drawHeader(doc: jsPDF, logo: string | null, documentTitle: string, subtitle: string) {
+  // Main white header
+  setFill(doc, WHITE);
+  doc.rect(0, 0, 210, 59, 'F');
 
-  // Soft right-side travel panel
-  doc.setFillColor(246, 250, 255);
-  doc.rect(118, 0, 92, 58, 'F');
+  // Right travel illustration panel
+  setFill(doc, PALE_BLUE);
+  doc.rect(118, 0, 92, 59, 'F');
 
-  // Stylized skyline / travel illustration
-  doc.setFillColor(...BLUE);
-  doc.rect(151, 37, 5, 21, 'F');
-  doc.rect(159, 29, 7, 29, 'F');
-  doc.rect(169, 34, 5, 24, 'F');
-  doc.rect(177, 24, 8, 34, 'F');
-  doc.rect(189, 31, 5, 27, 'F');
-  doc.rect(198, 39, 4, 19, 'F');
+  // Skyline made from simple safe primitives
+  setFill(doc, NAVY);
+  doc.rect(149, 39, 5, 20, 'F');
+  doc.rect(157, 31, 7, 28, 'F');
+  doc.rect(167, 36, 5, 23, 'F');
+  doc.rect(175, 27, 8, 32, 'F');
+  doc.rect(188, 34, 5, 25, 'F');
+  doc.rect(197, 40, 4, 19, 'F');
 
-  doc.setFillColor(...ORANGE);
-  doc.rect(151, 37, 5, 1.2, 'F');
-  doc.rect(159, 29, 7, 1.2, 'F');
-  doc.rect(177, 24, 8, 1.2, 'F');
+  setFill(doc, ORANGE);
+  doc.rect(149, 39, 5, 1.3, 'F');
+  doc.rect(157, 31, 7, 1.3, 'F');
+  doc.rect(175, 27, 8, 1.3, 'F');
 
   // Globe
-  doc.setDrawColor(...BLUE_2);
+  setDraw(doc, BLUE);
   doc.setLineWidth(0.7);
-  doc.circle(173, 35, 12, 'S');
-  doc.ellipse(173, 35, 5.2, 12, 'S');
-  doc.line(161, 35, 185, 35);
-  doc.line(163, 29, 183, 29);
-  doc.line(163, 41, 183, 41);
+  doc.circle(175, 34, 12, 'S');
+  doc.line(163, 34, 187, 34);
+  doc.line(167, 26, 183, 42);
+  doc.line(183, 26, 167, 42);
 
-  // Decorative flight path
-  doc.setDrawColor(...ORANGE);
-  doc.setLineWidth(0.8);
-  doc.setLineDashPattern([1.2, 1.2], 0);
-  doc.line(121, 18, 147, 12);
-  doc.line(147, 12, 157, 15);
-  doc.setLineDashPattern([], 0);
-  drawPlane(doc, 143, 13, 0.8);
+  // Flight path
+  setDraw(doc, ORANGE);
+  doc.setLineWidth(0.6);
+  doc.line(121, 18, 139, 14);
+  doc.line(139, 14, 148, 17);
+  drawPlane(doc, 140, 14, 0.65);
 
-  // Brand block
-  if (logo) doc.addImage(logo, 'PNG', 12, 8, 72, 25);
+  if (logo) {
+    doc.addImage(logo, 'PNG', 12, 8, 72, 25);
+  }
 
-  doc.setTextColor(...BLUE);
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.text('Bangladesh Tours & Travels', 12, 40);
 
-  doc.setTextColor(...MUTED);
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.text('Your Trusted Travel Partner', 12, 46);
 
-  doc.setTextColor(...ORANGE);
+  setText(doc, ORANGE);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text('AIR TICKET  •  TOUR PACKAGE  •  VISA  •  HOTEL', 12, 52);
 
-  // Orange / blue wave divider
-  doc.setFillColor(...ORANGE);
-  doc.triangle(0, 56, 0, 60, 112, 60, 'F');
-  doc.setFillColor(...BLUE);
-  doc.triangle(98, 55, 210, 55, 210, 60, 'F');
+  // Decorative blue/orange lower band
+  setFill(doc, ORANGE);
+  doc.rect(0, 56, 210, 2, 'F');
+  setFill(doc, NAVY);
+  doc.rect(0, 58, 210, 2, 'F');
 
-  // Document title overlay
-  doc.setTextColor(...WHITE);
+  setText(doc, WHITE);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text(documentTitle.toUpperCase(), 187, 56.5, { align: 'right' });
+  doc.setFontSize(6.5);
+  doc.text(documentTitle.toUpperCase(), 197, 57.2, { align: 'right' });
 
-  doc.setTextColor(...MUTED);
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
-  doc.text(subtitle.toUpperCase(), 12, 63);
+  doc.text(subtitle.toUpperCase(), 12, 66);
 }
 
 function sectionTitle(
@@ -193,12 +207,12 @@ function sectionTitle(
   x: number,
   y: number,
   title: string,
-  accent: readonly [number, number, number] = BLUE_2,
+  accent: Rgb = BLUE,
 ) {
-  doc.setFillColor(...accent);
+  setFill(doc, accent);
   doc.roundedRect(x, y, 5, 12, 1.5, 1.5, 'F');
 
-  doc.setTextColor(...BLUE);
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text(title, x + 9, y + 8.5);
@@ -211,53 +225,45 @@ function infoCard(
   w: number,
   h: number,
   title: string,
-  accent: readonly [number, number, number],
-  fill: readonly [number, number, number],
+  accent: Rgb,
+  fill: Rgb,
 ) {
-  doc.setFillColor(...fill);
-  doc.setDrawColor(...LINE);
+  setFill(doc, fill);
+  setDraw(doc, LINE);
   doc.roundedRect(x, y, w, h, 4, 4, 'FD');
 
-  doc.setFillColor(...accent);
+  setFill(doc, accent);
   doc.roundedRect(x + 4, y + 5, 8, 8, 2, 2, 'F');
 
-  doc.setTextColor(...BLUE);
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.text(title, x + 16, y + 10.5);
 }
 
-function metaCard(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  w: number,
-  label: string,
-  value: string,
-) {
-  doc.setFillColor(246, 250, 255);
-  doc.setDrawColor(...LINE);
+function metaCard(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
+  setFill(doc, [246, 250, 255]);
+  setDraw(doc, LINE);
   doc.roundedRect(x, y, w, 18, 3.5, 3.5, 'FD');
 
-  doc.setTextColor(...MUTED);
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6);
   doc.text(label.toUpperCase(), x + 5, y + 6.5);
 
-  doc.setTextColor(...INK);
+  setText(doc, INK);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.text(textOrDash(value), x + 5, y + 13.5);
 }
 
 function footer(doc: jsPDF) {
-  doc.setFillColor(...BLUE);
+  setFill(doc, NAVY);
   doc.rect(0, 284, 210, 13, 'F');
-
-  doc.setFillColor(...ORANGE);
+  setFill(doc, ORANGE);
   doc.rect(0, 284, 210, 1.5, 'F');
 
-  doc.setTextColor(...WHITE);
+  setText(doc, WHITE);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
   doc.text('Bangladesh Tours & Travels  •  Professional Travel Services', 12, 292.5);
@@ -280,16 +286,17 @@ function customerCard(
 ) {
   infoCard(doc, x, y, w, h, title, ORANGE, PALE_ORANGE);
 
-  doc.setTextColor(...INK);
+  setText(doc, INK);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.text(textOrDash(name), x + 6, y + 22);
 
-  doc.setTextColor(...MUTED);
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.2);
 
   let lineY = y + 30;
+
   if (phone) {
     doc.text(phone, x + 6, lineY);
     lineY += 7;
@@ -302,28 +309,34 @@ function customerCard(
 }
 
 function travelCard(doc: jsPDF, x: number, y: number, w: number, h: number, items: BillPdfItem[]) {
-  infoCard(doc, x, y, w, h, 'Travel Details', BLUE_2, PALE_BLUE);
+  infoCard(doc, x, y, w, h, 'Travel Details', BLUE, PALE_BLUE);
 
   const firstDate = items.find((item) => item.travel_date)?.travel_date;
-  const serviceNames = Array.from(
-    new Set(items.map((item) => item.service_type?.trim()).filter(Boolean)),
-  ).join('  •  ');
+  const uniqueServices: string[] = [];
 
-  const details = [
+  items.forEach((item) => {
+    const name = item.service_type?.trim();
+    if (name && !uniqueServices.includes(name)) uniqueServices.push(name);
+  });
+
+  const services = uniqueServices.join('  •  ') || 'Travel Service';
+
+  const details: Array<[string, string]> = [
     ['Travel Date', firstDate ? dateText(firstDate) : '—'],
     ['Passengers', String(items.length)],
-    ['Services', serviceNames || 'Travel Service'],
+    ['Services', services],
   ];
 
-  doc.setFontSize(7.2);
   details.forEach(([label, value], index) => {
     const yy = y + 22 + index * 9;
-    doc.setTextColor(...MUTED);
+    setText(doc, MUTED);
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
     doc.text(label, x + 6, yy);
-    doc.setTextColor(...INK);
+
+    setText(doc, INK);
     doc.setFont('helvetica', 'normal');
-    const valueLines = doc.splitTextToSize(value, w - 38);
+    const valueLines = doc.splitTextToSize(value, w - 42);
     doc.text(valueLines, x + 34, yy);
   });
 }
@@ -347,33 +360,32 @@ function drawSummaryBox(
   paidNow: number,
   totalDue: number,
 ) {
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(...LINE);
+  setFill(doc, [248, 250, 252]);
+  setDraw(doc, LINE);
   doc.roundedRect(x, y, w, 42, 4, 4, 'FD');
 
-  sectionTitle(doc, x + 5, y + 4, 'Payment Summary', BLUE_2);
+  sectionTitle(doc, x + 5, y + 4, 'Payment Summary');
 
-  const rows = [
-    ['Previous Due', previousDue, MUTED],
-    ["Today's Bill", subtotal, INK],
-    ['Paid Now', paidNow, GREEN],
-  ] as const;
+  const labels = ['Previous Due', "Today's Bill", 'Paid Now'];
+  const values = [previousDue, subtotal, paidNow];
 
-  rows.forEach(([label, value, color], index) => {
-    const yy = y + 20 + index * 6.8;
-    doc.setTextColor(...MUTED);
+  for (let i = 0; i < labels.length; i += 1) {
+    const yy = y + 20 + i * 6.8;
+    setText(doc, MUTED);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
-    doc.text(label, x + 7, yy);
+    doc.text(labels[i], x + 7, yy);
 
-    doc.setTextColor(...color);
+    if (i === 2) setText(doc, GREEN);
+    else setText(doc, INK);
+
     doc.setFont('helvetica', 'bold');
-    doc.text(money(value), x + w - 7, yy, { align: 'right' });
-  });
+    doc.text(money(values[i]), x + w - 7, yy, { align: 'right' });
+  }
 
-  doc.setFillColor(...ORANGE);
+  setFill(doc, ORANGE);
   doc.roundedRect(x + 5, y + 42, w - 10, 16, 4, 4, 'F');
-  doc.setTextColor(...WHITE);
+  setText(doc, WHITE);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.3);
   doc.text('TOTAL OUTSTANDING', x + 11, y + 52);
@@ -382,22 +394,34 @@ function drawSummaryBox(
   doc.text(money(totalDue), x + w - 11, y + 52, { align: 'right' });
 }
 
+function drawBillTableHeader(doc: jsPDF, y: number) {
+  setFill(doc, NAVY);
+  doc.roundedRect(15, y, 180, 11, 2.5, 2.5, 'F');
+
+  setText(doc, WHITE);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.7);
+  doc.text('#', 19, y + 7);
+  doc.text('PASSENGER', 27, y + 7);
+  doc.text('TRAVEL DATE', 62, y + 7);
+  doc.text('SERVICE / DETAILS', 91, y + 7);
+  doc.text('AMOUNT (BDT)', 188, y + 7, { align: 'right' });
+}
+
 export async function buildBillPdf(data: BillPdfData) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const logo = await logoDataUrl(await businessLogoUrl());
 
-  drawTravelHeader(doc, logo, 'Booking Bill', 'Booking document / invoice');
-  doc.setTextColor(...BLUE);
+  drawHeader(doc, logo, 'Booking Bill', 'Booking document / invoice');
+
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(24);
   doc.text('BOOKING BILL', 15, 78);
 
-  doc.setTextColor(...ORANGE);
+  setText(doc, ORANGE);
   doc.setFontSize(13);
   doc.text('INVOICE', 15, 85);
-
-  metaCard(doc, 130, 68, 65, 'Bill Number', data.billNo);
-  metaCard(doc, 130, 89, 65, 'Bill Date', dateText(data.billDate));
 
   customerCard(
     doc,
@@ -410,23 +434,14 @@ export async function buildBillPdf(data: BillPdfData) {
     data.customerAddress,
   );
 
+  metaCard(doc, 130, 68, 65, 'Bill Number', data.billNo);
+  metaCard(doc, 130, 89, 65, 'Bill Date', dateText(data.billDate));
+
   travelCard(doc, 15, 118, 180, 44, data.items);
 
-  // Table header
-  const tableY = 168;
-  doc.setFillColor(...BLUE);
-  doc.roundedRect(15, tableY, 180, 11, 2.5, 2.5, 'F');
+  drawBillTableHeader(doc, 168);
 
-  doc.setTextColor(...WHITE);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.7);
-  doc.text('#', 19, tableY + 7);
-  doc.text('PASSENGER', 27, tableY + 7);
-  doc.text('TRAVEL DATE', 62, tableY + 7);
-  doc.text('SERVICE / DETAILS', 91, tableY + 7);
-  doc.text('AMOUNT (BDT)', 188, tableY + 7, { align: 'right' });
-
-  let y = tableY + 17;
+  let y = 185;
 
   for (let index = 0; index < data.items.length; index += 1) {
     const item = data.items[index];
@@ -438,43 +453,34 @@ export async function buildBillPdf(data: BillPdfData) {
 
     if (y + rowH > 245) {
       doc.addPage();
-      drawTravelHeader(doc, logo, 'Booking Bill', 'Booking document / invoice');
-      doc.setTextColor(...BLUE);
+      drawHeader(doc, logo, 'Booking Bill', 'Booking document / invoice');
+      setText(doc, NAVY);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(15);
       doc.text('BOOKING BILL — CONTINUED', 15, 75);
-
-      doc.setFillColor(...BLUE);
-      doc.roundedRect(15, 82, 180, 11, 2.5, 2.5, 'F');
-      doc.setTextColor(...WHITE);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.7);
-      doc.text('#', 19, 89);
-      doc.text('PASSENGER', 27, 89);
-      doc.text('TRAVEL DATE', 62, 89);
-      doc.text('SERVICE / DETAILS', 91, 89);
-      doc.text('AMOUNT (BDT)', 188, 89, { align: 'right' });
+      drawBillTableHeader(doc, 82);
       y = 99;
     }
 
-    doc.setFillColor(index % 2 === 0 ? 249 : 244, index % 2 === 0 ? 251 : 248, 253);
-    doc.setDrawColor(...LINE);
+    const fill = index % 2 === 0 ? [249, 251, 253] : [244, 248, 252];
+    setFill(doc, fill as Rgb);
+    setDraw(doc, LINE);
     doc.roundedRect(15, y - 6, 180, rowH, 2.5, 2.5, 'FD');
 
-    doc.setTextColor(...MUTED);
+    setText(doc, MUTED);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.8);
     doc.text(String(index + 1), 19, y + 1);
 
-    doc.setTextColor(...INK);
+    setText(doc, INK);
     doc.setFontSize(7.2);
     doc.text(textOrDash(item.passenger_name), 27, y + 1);
 
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...MUTED);
+    setText(doc, MUTED);
     doc.text(item.travel_date ? dateText(item.travel_date) : '—', 62, y + 1);
 
-    doc.setTextColor(...INK);
+    setText(doc, INK);
     doc.text(detailLines, 91, y + 1);
 
     doc.setFont('helvetica', 'bold');
@@ -484,6 +490,7 @@ export async function buildBillPdf(data: BillPdfData) {
   }
 
   const summaryY = Math.min(Math.max(y + 4, 184), 222);
+
   drawSummaryBox(
     doc,
     15,
@@ -495,16 +502,17 @@ export async function buildBillPdf(data: BillPdfData) {
     data.totalDue,
   );
 
-  // Important note / signature area on the right
   const noteX = 116;
-  doc.setFillColor(...PALE_ORANGE);
-  doc.setDrawColor(255, 221, 180);
+  setFill(doc, PALE_ORANGE);
+  setDraw(doc, [255, 221, 180]);
   doc.roundedRect(noteX, summaryY, 79, 58, 4, 4, 'FD');
 
   sectionTitle(doc, noteX + 5, summaryY + 4, 'Important Note', ORANGE);
-  doc.setTextColor(...MUTED);
+
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.7);
+
   const noteLines = [
     'Please make the remaining payment',
     'before the travel date.',
@@ -513,17 +521,21 @@ export async function buildBillPdf(data: BillPdfData) {
     'For changes or cancellation, contact',
     'our support team.',
   ];
-  noteLines.forEach((line, index) => {
-    const yy = summaryY + 20 + index * 6.4;
-    doc.setTextColor(index === 0 ? ORANGE[0] : MUTED[0], index === 0 ? ORANGE[1] : MUTED[1], index === 0 ? ORANGE[2] : MUTED[2]);
-    doc.text(index === 0 ? '•  ' + line : '   ' + line, noteX + 7, yy);
-  });
 
-  doc.setTextColor(...BLUE);
+  for (let i = 0; i < noteLines.length; i += 1) {
+    const yy = summaryY + 20 + i * 6.4;
+    if (i === 0) setText(doc, ORANGE);
+    else setText(doc, MUTED);
+
+    doc.text('•  ' + noteLines[i], noteX + 7, yy);
+  }
+
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.text('Thank You', 188, summaryY + 50, { align: 'right' });
-  doc.setTextColor(...ORANGE);
+
+  setText(doc, ORANGE);
   doc.setFontSize(5.8);
   doc.text('For choosing Bangladesh Tours & Travels', 188, summaryY + 56, { align: 'right' });
 
@@ -535,47 +547,48 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const logo = await logoDataUrl(await businessLogoUrl());
 
-  drawTravelHeader(doc, logo, 'Payment Receipt', 'Official receipt / payment confirmation');
-  doc.setTextColor(...BLUE);
+  drawHeader(doc, logo, 'Payment Receipt', 'Official receipt / payment confirmation');
+
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(23);
   doc.text('PAYMENT RECEIPT', 15, 78);
 
-  doc.setTextColor(...ORANGE);
+  setText(doc, ORANGE);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text('O F F I C I A L   R E C E I P T', 15, 85);
+
+  customerCard(doc, 15, 92, 106, 52, data.customerName, data.customerPhone);
 
   metaCard(doc, 130, 68, 65, 'Receipt Number', data.paymentNo);
   metaCard(doc, 130, 89, 65, 'Payment Date', dateText(data.paymentDate));
   metaCard(doc, 130, 110, 65, 'Payment Method', data.method || 'Cash');
 
-  customerCard(doc, 15, 92, 106, 52, data.customerName, data.customerPhone);
-
-  infoCard(doc, 126, 137, 69, 34, 'Payment Reference', BLUE_2, PALE_BLUE);
-  doc.setTextColor(...INK);
+  infoCard(doc, 126, 137, 69, 34, 'Payment Reference', BLUE, PALE_BLUE);
+  setText(doc, INK);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.text('Bill Book Payment', 132, 158);
 
-  // Main green payment panel
-  doc.setFillColor(...PALE_GREEN);
-  doc.setDrawColor(186, 232, 210);
+  // Green payment received panel
+  setFill(doc, PALE_GREEN);
+  setDraw(doc, [186, 232, 210]);
   doc.roundedRect(15, 150, 106, 66, 6, 6, 'FD');
 
-  doc.setFillColor(...GREEN);
+  setFill(doc, GREEN);
   doc.roundedRect(22, 158, 10, 10, 2.5, 2.5, 'F');
-  doc.setDrawColor(...WHITE);
+  setDraw(doc, WHITE);
   doc.setLineWidth(1.2);
   doc.line(25, 163, 27.4, 165.4);
-  doc.line(27.4, 165.4, 31.0, 161.1);
+  doc.line(27.4, 165.4, 31, 161.1);
 
-  doc.setTextColor(...GREEN);
+  setText(doc, GREEN);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text('PAYMENT RECEIVED', 38, 165);
 
-  doc.setTextColor(10, 103, 64);
+  setText(doc, [10, 103, 64]);
   doc.setFontSize(20);
   doc.text(money(data.amount), 22, 187);
 
@@ -587,62 +600,64 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
   doc.setFontSize(6.6);
   doc.text('Thank you for your payment.', 22, 208);
 
-  // Due summary
-  doc.setFillColor(250, 250, 251);
-  doc.setDrawColor(...LINE);
+  // Account summary
+  setFill(doc, [250, 250, 251]);
+  setDraw(doc, LINE);
   doc.roundedRect(126, 176, 69, 73, 5, 5, 'FD');
 
-  sectionTitle(doc, 132, 182, 'Account Summary', BLUE_2);
+  sectionTitle(doc, 132, 182, 'Account Summary');
 
-  const dueRows = [
+  const dueRows: Array<[string, string, Rgb]> = [
     ['Previous Due', money(data.previousDue), MUTED],
     ['Payment Received', '− ' + money(data.amount), GREEN],
     ['Remaining Due', money(data.remainingDue), INK],
-  ] as const;
+  ];
 
   dueRows.forEach(([label, value, color], index) => {
     const yy = 202 + index * 12;
-    doc.setTextColor(...MUTED);
+
+    setText(doc, MUTED);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.text(label, 132, yy);
-    doc.setTextColor(...color);
+
+    setText(doc, color);
     doc.setFont('helvetica', 'bold');
     doc.text(value, 189, yy, { align: 'right' });
 
     if (index < dueRows.length - 1) {
-      doc.setDrawColor(...LINE);
+      setDraw(doc, LINE);
       doc.line(132, yy + 4, 189, yy + 4);
     }
   });
 
-  doc.setFillColor(255, 235, 232);
+  setFill(doc, [255, 235, 232]);
   doc.roundedRect(130, 234, 61, 11, 3, 3, 'F');
-  doc.setTextColor(210, 45, 35);
+  setText(doc, RED);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.7);
   doc.text('REMAINING DUE', 135, 241);
   doc.setFontSize(8.8);
   doc.text(money(data.remainingDue), 188, 241, { align: 'right' });
 
-  // Receipt note
   const note = data.note?.trim() || 'This receipt confirms the payment recorded in the Bill Book.';
-  doc.setFillColor(...PALE_BLUE);
-  doc.setDrawColor(210, 228, 245);
+
+  setFill(doc, PALE_BLUE);
+  setDraw(doc, [210, 228, 245]);
   doc.roundedRect(15, 224, 106, 38, 5, 5, 'FD');
 
-  sectionTitle(doc, 21, 229, 'Payment Note', BLUE_2);
-  doc.setTextColor(...MUTED);
+  sectionTitle(doc, 21, 229, 'Payment Note');
+  setText(doc, MUTED);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.7);
   doc.text(doc.splitTextToSize(note, 92), 21, 245);
 
-  doc.setTextColor(...BLUE);
+  setText(doc, NAVY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('Thank You', 118, 270, { align: 'right' });
 
-  doc.setTextColor(...ORANGE);
+  setText(doc, ORANGE);
   doc.setFontSize(6);
   doc.text('For your payment and continued trust', 118, 277, { align: 'right' });
 
@@ -689,6 +704,7 @@ export async function sendPdfToWhatsApp(
   }
 
   const pdfBase64 = btoa(binary);
+
   const { error } = await supabase.functions.invoke('send-whatsapp-pdf', {
     body: {
       phone,
