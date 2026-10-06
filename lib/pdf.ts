@@ -80,29 +80,70 @@ async function logoDataUrl(customUrl?: string | null) {
 }
 
 function header(doc: jsPDF, logo: string | null, title: string) {
-  // Premium navy header with orange accent
+  // Premium travel header — kept within the existing stable page layout.
+  doc.setFillColor(255,255,255);
+  doc.rect(0, 0, 210, 49, 'F');
+
+  // Soft travel illustration panel on the right.
+  doc.setFillColor(242,247,253);
+  doc.rect(118, 0, 92, 49, 'F');
+
+  // Skyline.
   doc.setFillColor(...INK);
-  doc.rect(0, 0, 210, 42, 'F');
+  doc.rect(150, 31, 6, 18, 'F');
+  doc.rect(159, 24, 8, 25, 'F');
+  doc.rect(170, 28, 6, 21, 'F');
+  doc.rect(179, 19, 8, 30, 'F');
+  doc.rect(191, 26, 6, 23, 'F');
+  doc.rect(201, 33, 4, 16, 'F');
+
   doc.setFillColor(...ORANGE);
-  doc.rect(0, 0, 210, 3, 'F');
+  doc.rect(150, 31, 6, 1.2, 'F');
+  doc.rect(159, 24, 8, 1.2, 'F');
+  doc.rect(179, 19, 8, 1.2, 'F');
 
-  if (logo) doc.addImage(logo, 'PNG', 15, 9, 58, 24);
+  // Globe.
+  doc.setDrawColor(...BLUE);
+  doc.setLineWidth(0.55);
+  doc.circle(176, 28, 10, 'S');
+  doc.line(166, 28, 186, 28);
+  doc.ellipse(176, 28, 4.5, 10, 'S');
+  doc.line(168, 23, 184, 23);
+  doc.line(168, 33, 184, 33);
 
-  doc.setTextColor(255,255,255);
+  // Flight path + plane motif.
+  doc.setDrawColor(...ORANGE);
+  doc.setLineWidth(0.55);
+  doc.line(121, 16, 139, 12);
+  doc.line(139, 12, 150, 15);
+  doc.setDrawColor(...INK);
+  doc.line(141, 12, 153, 9);
+  doc.line(153, 9, 156, 12);
+  doc.line(153, 9, 149, 6);
+  doc.line(149, 12, 145, 17);
+
+  if (logo) doc.addImage(logo, 'PNG', 12, 7, 72, 23);
+
+  doc.setTextColor(...INK);
   doc.setFont('helvetica','bold');
   doc.setFontSize(15);
-  doc.text('Bangladesh Tours & Travels', 195, 16, {align:'right'});
-  doc.setTextColor(203,213,225);
+  doc.text('Bangladesh Tours & Travels', 12, 37);
+
+  doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(7.5);
-  doc.text('PROFESSIONAL TRAVEL SERVICES', 195, 23, {align:'right'});
+  doc.setFontSize(7.2);
+  doc.text('Your Trusted Travel Partner', 12, 43);
+
   doc.setTextColor(...ORANGE);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(10);
-  doc.text(title.toUpperCase(), 195, 34, {align:'right'});
+  doc.setFontSize(7.5);
+  doc.text('AIR TICKET  •  TOUR PACKAGE  •  VISA  •  HOTEL', 120, 46);
 
-  doc.setFillColor(248,250,252);
-  doc.rect(0, 42, 210, 3, 'F');
+  // Orange + navy divider.
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 47, 210, 1, 'F');
+  doc.setFillColor(...INK);
+  doc.rect(0, 48, 210, 1, 'F');
 }
 
 function pill(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
