@@ -392,18 +392,52 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
 
 
 export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: string) {
-  const waWindow = window.open('https://web.whatsapp.com/', '_blank');
   const blob = doc.output('blob');
-  const file = new File([blob], fileName, {type:'application/pdf'});
+  const file = new File([blob], fileName, { type: 'application/pdf' });
+
+  // On supported phones/tablets, use the native OS share sheet.
+  // This lets the user choose WhatsApp and then select the recipient,
+  // while keeping the PDF attached to the share payload.
+  if (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function'
+  ) {
+    try {
+      const shareData = {
+        files: [file],
+        title: fileName,
+        text: whatsappText,
+      };
+
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share(shareData);
+        return;
+      }
+    } catch (error) {
+      // User cancellation is normal; do not open another window or download.
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+
+      // For a browser that rejects native file sharing, continue to the
+      // desktop/manual fallback below.
+    }
+  }
+
+  // Desktop / unsupported-browser fallback:
+  // A browser cannot programmatically attach a local PDF to an arbitrary
+  // WhatsApp Web chat, so we open WhatsApp Web and download the PDF.
+  const waWindow = window.open('https://web.whatsapp.com/', '_blank');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
   a.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
   try {
     await navigator.clipboard?.writeText(whatsappText);
   } catch {}
+
   if (!waWindow) {
     window.location.href = 'https://web.whatsapp.com/';
   }
