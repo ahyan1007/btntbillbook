@@ -51,12 +51,23 @@ function Content({view}:{view:View}){const [refresh,setRefresh]=useState(0);if(v
 
 function Dashboard(){
  const [rows,setRows]=useState<Customer[]>([]);
+ const [totalDue,setTotalDue]=useState(0);
+ const [customerDueCount,setCustomerDueCount]=useState(0);
  const [uploading,setUploading]=useState(false);
  const [savingBrand,setSavingBrand]=useState(false);
  const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null});
  useEffect(()=>{
-  supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8).then(({data})=>setRows((data as Customer[])||[]));
-  supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle().then(({data})=>{if(data)setBrand((prev:any)=>({...prev,...data}))});
+  Promise.all([
+    supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8),
+    supabase.from('customer_balances').select('current_due'),
+    supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle()
+  ]).then(([list,metrics,settings])=>{
+    setRows((list.data as Customer[])||[]);
+    const values=(metrics.data||[]).map((x:any)=>Number(x.current_due||0));
+    setTotalDue(values.reduce((sum,n)=>sum+n,0));
+    setCustomerDueCount(values.filter(n=>n>0).length);
+    if(settings.data)setBrand((prev:any)=>({...prev,...settings.data}));
+  });
  },[]);
  async function uploadLogo(file:File){
   const allowed=['image/png','image/jpeg','image/webp','image/svg+xml'];
@@ -99,7 +110,7 @@ function Dashboard(){
   alert('PDF branding saved successfully.');
  }
  function setField(key:string,value:string|boolean){setBrand((x:any)=>({...x,[key]:value}))}
- const due=rows.reduce((s,r)=>s+Number(r.current_due||0),0);
+ const due=totalDue;
  const templates=[
   {key:'travel',name:'Travel Premium',desc:'Travel illustration, blue-orange premium header',icon:'✈️'},
   {key:'classic',name:'Classic Corporate',desc:'Formal navy corporate invoice style',icon:'▣'},
@@ -108,7 +119,7 @@ function Dashboard(){
  ];
  return <>
   <div className='mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end'><div><p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-3xl font-black tracking-tight'>Bill Book Dashboard</h1><p className='mt-2 text-sm text-slate-500'>Bookings, payments and customer dues — kept simple.</p></div></div>
-  <div className='grid gap-4 md:grid-cols-3'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'৳ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<Users/>} title='Customers with Due' value={String(rows.length)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>
+  <div className='grid gap-4 md:grid-cols-3'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'৳ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<Users/>} title='Customers with Due' value={String(customerDueCount)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>
 
   <div className='card mt-6 p-4 sm:p-5'>
    <div className='mb-5'><h2 className='font-black'>PDF Template & Business Branding</h2><p className='mt-1 text-xs leading-5 text-slate-400'>Choose a ready template, then set your own logo, company name, address and contact details. These settings appear on new bills and receipts.</p></div>
