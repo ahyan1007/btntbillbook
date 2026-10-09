@@ -511,9 +511,49 @@ function Bills(){
  const [page,setPage]=useState(1);
  const [total,setTotal]=useState(0);
  const [loadError,setLoadError]=useState<string|null>(null);
+ const [openingAccounts,setOpeningAccounts]=useState<Customer[]>([]);
+ const [openingLoading,setOpeningLoading]=useState(true);
+ const [openingError,setOpeningError]=useState<string|null>(null);
  const SIZE=20;
  const QUERY_PAGE=500;
  const BILL_FIELDS='id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address,is_archived)';
+
+ async function loadOpeningBalanceAccounts(){
+  setOpeningLoading(true);
+  setOpeningError(null);
+  try{
+   const customerResult=await fetchCustomerRecords(true);
+   if(customerResult.error) throw new Error(customerResult.error);
+   const dueCustomers=customerResult.rows.filter(customer=>Number.isFinite(Number(customer.current_due))&&Number(customer.current_due)>0);
+   const customersWithoutBills:Customer[]=[];
+
+   // Only show outstanding customer accounts that genuinely have no bill record.
+   for(let customerStart=0;customerStart<dueCustomers.length;customerStart+=100){
+    const batch=dueCustomers.slice(customerStart,customerStart+100);
+    const ids=batch.map(customer=>customer.id);
+    const billedCustomerIds=new Set<string>();
+    for(let offset=0;;offset+=QUERY_PAGE){
+     const result=await supabase.from('bills')
+      .select('customer_id')
+      .in('customer_id',ids)
+      .order('created_at',{ascending:false})
+      .range(offset,offset+QUERY_PAGE-1);
+     if(result.error) throw new Error(result.error.message);
+     const chunk=result.data||[];
+     chunk.forEach((bill:any)=>{if(bill.customer_id)billedCustomerIds.add(bill.customer_id)});
+     if(chunk.length<QUERY_PAGE) break;
+    }
+    batch.forEach(customer=>{if(!billedCustomerIds.has(customer.id))customersWithoutBills.push(customer)});
+   }
+   customersWithoutBills.sort((a,b)=>Number(b.current_due)-Number(a.current_due));
+   setOpeningAccounts(customersWithoutBills);
+  }catch(error){
+   setOpeningError(error instanceof Error?error.message:'Could not load opening-balance accounts.');
+   setOpeningAccounts([]);
+  }finally{
+   setOpeningLoading(false);
+  }
+ }
 
  async function load(nextPage=page,query=q){
   setLoading(true);
@@ -527,7 +567,6 @@ function Bills(){
     const term=query.trim();
     const matchingBills=new Map<string,any>();
 
-    // Search the full bill-number result set, not just the first 100 bills.
     for(let offset=0;;offset+=QUERY_PAGE){
      const result=await supabase.from('bills')
       .select(BILL_FIELDS)
@@ -540,7 +579,6 @@ function Bills(){
      if(chunk.length<QUERY_PAGE) break;
     }
 
-    // Find all matching active and archived customer records, in pages.
     const customerIds:string[]=[];
     for(let offset=0;;offset+=QUERY_PAGE){
      const result=await supabase.from('customers')
@@ -553,7 +591,6 @@ function Bills(){
      if(chunk.length<QUERY_PAGE) break;
     }
 
-    // Query bills by batches of customer IDs to avoid PostgREST query-size limits.
     for(let idStart=0;idStart<customerIds.length;idStart+=100){
      const ids=customerIds.slice(idStart,idStart+100);
      for(let offset=0;;offset+=QUERY_PAGE){
@@ -602,8 +639,7 @@ function Bills(){
    setTotal(count);
    setPage(nextPage);
   } catch(error){
-   const message=error instanceof Error?error.message:'Could not load bills.';
-   setLoadError(message);
+   setLoadError(error instanceof Error?error.message:'Could not load bills.');
    setRows([]);
    setTotal(0);
   } finally {
@@ -611,11 +647,13 @@ function Bills(){
   }
  }
 
- useEffect(()=>{void load(1,'')},[]);
+ useEffect(()=>{void load(1,'');void loadOpeningBalanceAccounts()},[]);
  const pages=Math.max(1,Math.ceil(total/SIZE));
+ const matchedOpeningAccounts=openingAccounts.filter(customer=>(customer.name+' '+(customer.phone||'')+' '+(customer.address||'')).toLowerCase().includes(q.trim().toLowerCase()));
 
  return <>
-  <Head title='Bills' sub='Browse saved booking bills. Customers only appear here after a bill has been recorded.'/>
+  <Head title='Bills' sub='Browse saved booking bills and view customer opening balances separately.'/>
+
   <div className='card mt-6 p-4 sm:p-5'>
    <form onSubmit={event=>{event.preventDefault();void load(1,q)}} className='flex flex-col gap-3 sm:flex-row'>
     <div className='relative min-w-0 flex-1'>
@@ -627,10 +665,42 @@ function Bills(){
      {q&&<button type='button' className='btn btn-secondary' disabled={loading} onClick={()=>{setQ('');void load(1,'')}}>Clear</button>}
     </div>
    </form>
-   <p className='mt-3 text-xs leading-5 text-slate-500'>Search checks bill numbers and all matching customer names, including archived customers’ historical bills. To select a customer for a new transaction, use New Bill or Payments.</p>
+   <p className='mt-3 text-xs leading-5 text-slate-500'>Bills below are saved invoice records. Customer opening balances appear in a separate section and are not treated as newly issued bills.</p>
   </div>
+
+  <section className='card mt-4 overflow-hidden'>
+   <div className='flex flex-col gap-1 border-b border-slate-100 bg-amber-50/60 p-4 sm:p-5'>
+    <div className='flex flex-wrap items-center gap-2'>
+     <span className='grid h-9 w-9 place-items-center rounded-xl bg-amber-100 text-amber-700'><WalletCards size={18}/></span>
+     <h2 className='font-black text-slate-900'>Opening Balance Accounts</h2>
+     <span className='rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-amber-800'>Not a bill</span>
+    </div>
+    <p className='mt-1 text-xs leading-5 text-slate-600'>Customers with outstanding balances but no saved bill record. These rows do not generate a bill PDF.</p>
+   </div>
+   {openingLoading?<div className='p-5 text-sm text-slate-500'>Checking customer balances…</div>
+   :openingError?<div role='alert' className='break-words p-5 text-sm text-red-700'>Opening balances could not be loaded: {openingError}</div>
+   :matchedOpeningAccounts.length===0?<div className='p-5 text-sm text-slate-500'>{q?'No opening-balance customer matches this search.':'No outstanding customers without a bill record.'}</div>
+   :<div className='divide-y divide-slate-100'>
+    {matchedOpeningAccounts.map(customer=><article key={customer.id} className='flex min-w-0 flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
+     <div className='flex min-w-0 items-start gap-3'>
+      <span className='grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-xs font-black uppercase text-amber-800'>{(customer.name||'C').trim().split(/\\s+/).slice(0,2).map(part=>part[0]).join('')}</span>
+      <div className='min-w-0'>
+       <div className='flex flex-wrap items-center gap-2'><p className='break-words font-bold text-slate-900'>{customer.name}</p>{customer.is_archived&&<span className='rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase text-slate-500'>Archived</span>}</div>
+       <p className='mt-1 break-words text-xs text-slate-500'>{customer.phone||'No mobile number'}{customer.address?' · '+customer.address:''}</p>
+       <p className='mt-1 text-xs text-amber-800'>Opening / previous due: ₹ {Number(customer.opening_due||0).toLocaleString('en-IN')} · No bill recorded</p>
+      </div>
+     </div>
+     <div className='rounded-xl bg-amber-50 px-4 py-3 sm:min-w-44 sm:text-right'>
+      <p className='text-[10px] font-black uppercase tracking-wide text-amber-800'>Current balance due</p>
+      <p className='mt-1 text-xl font-black text-amber-900'>₹ {Number(customer.current_due||0).toLocaleString('en-IN')}</p>
+     </div>
+    </article>)}
+   </div>}
+  </section>
+
   {loadError&&<div role='alert' className='mt-4 break-words rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800'>Bills could not be loaded: {loadError}</div>}
   <div className='card mt-4 overflow-hidden'>
+   <div className='border-b border-slate-100 bg-white p-4 sm:p-5'><h2 className='font-black text-slate-900'>Saved Bills</h2><p className='mt-1 text-xs text-slate-500'>Only issued bill records appear in this list.</p></div>
    {loading?<div className='p-10 text-center text-sm text-slate-500'><span className='mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-blue'/><p className='mt-3'>Loading bills…</p></div>
    :<div className='divide-y divide-slate-100'>
     {rows.map((bill,index)=>{
@@ -659,7 +729,7 @@ function Bills(){
     {!rows.length&&<div className='p-10 text-center'>
       <div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400'><ReceiptText size={22}/></div>
       <p className='mt-3 font-bold text-slate-800'>{q?'No matching bills found':'No bills recorded yet'}</p>
-      <p className='mt-1 text-sm leading-6 text-slate-500'>{q?'Try the full customer name or bill number. If that customer has not had a bill recorded, they will not appear on this page.':'Create a bill from New Bill; it will appear here automatically.'}</p>
+      <p className='mt-1 text-sm leading-6 text-slate-500'>{q?'Try the full customer name or bill number. Opening-balance accounts are searched in the separate section above.':'Create a bill from New Bill; customers whose balances came from an opening amount will appear in the section above.'}</p>
      </div>}
    </div>}
   </div>
