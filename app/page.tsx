@@ -7,7 +7,7 @@ import { CustomerLedger } from '@/components/customer-ledger';
 import { PwaInstall } from '@/components/pwa-install';
 import { PartyStatement } from '@/components/party-statement';
 
-type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number};
+type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number;is_archived?:boolean};
 type Item={passenger_name:string;travel_date:string;service_type:string;details:string;amount:string};
 type View='dashboard'|'customers'|'bill'|'payments'|'bills'|'statement';
 
@@ -309,10 +309,11 @@ function Customers() {
   const [notice,setNotice] = useState<string|null>(null);
   const [saving,setSaving] = useState(false);
   const [deletingId,setDeletingId] = useState<string|null>(null);
+  const [showArchived,setShowArchived] = useState(false);
 
-  async function load() {
+  async function load(includeArchived = showArchived) {
     setLoading(true);
-    const result = await fetchCustomerRecords();
+    const result = await fetchCustomerRecords(includeArchived);
     setRows(result.rows);
     setLoadError(result.error);
     setBalancesReady(result.balancesReady);
@@ -339,51 +340,80 @@ function Customers() {
     await load();
   }
 
-  async function removeCustomer(r:Customer) {
+  async function setCustomerArchived(customer:Customer, archived:boolean) {
     if(deletingId) return;
     const {data:{user}} = await supabase.auth.getUser();
-    if(!user) { alert('Please sign in again before deleting a customer.'); return; }
-    setDeletingId(r.id);
+    if(!user) { alert('Please sign in again before changing customer status.'); return; }
+    setDeletingId(customer.id);
     setNotice(null);
-
-    const [billCheck,paymentCheck] = await Promise.all([
-      supabase.from('bills').select('id',{count:'exact',head:true}).eq('customer_id',r.id),
-      supabase.from('payments').select('id',{count:'exact',head:true}).eq('customer_id',r.id),
-    ]);
-
-    if(billCheck.error||paymentCheck.error) {
-      setDeletingId(null);
-      alert('Could not verify this customer’s history. No deletion was performed. '+(billCheck.error?.message||paymentCheck.error?.message||''));
-      return;
-    }
-
-    const billCount = billCheck.count||0;
-    const paymentCount = paymentCheck.count||0;
-    if(billCount>0||paymentCount>0) {
-      setDeletingId(null);
-      alert('This customer cannot be permanently deleted because the ledger contains '+billCount+' bill(s) and '+paymentCount+' payment(s). Keeping the customer preserves the financial history. You can still edit the customer details.');
-      return;
-    }
-
-    if(!confirm('Permanently delete '+r.name+'? This customer has no recorded bills or payments.')) {
-      setDeletingId(null);
-      return;
-    }
-
-    const {data,error} = await supabase.from('customers').delete().eq('id',r.id).eq('user_id',user.id).select('id');
+    const {data,error} = await supabase.from('customers')
+      .update({is_archived:archived})
+      .eq('id',customer.id).eq('user_id',user.id)
+      .select('id,is_archived');
     setDeletingId(null);
     if(error) {
-      alert('Delete failed: '+error.message);
+      alert('Customer status could not be changed. Apply the customer archive database migration first. '+error.message);
       return;
     }
     if(!data?.length) {
-      alert('No customer was deleted. The database permissions may block deletion for this account. Please check the Supabase customer DELETE policy.');
+      alert('No change was saved. Please check the admin UPDATE policy for customers.');
+      return;
+    }
+    setNotice(archived
+      ? customer.name+' was archived. Their bills and payments remain in the ledger.'
+      : customer.name+' was restored to active customers.');
+    await load(showArchived);
+  }
+
+  async function removeCustomer(customer:Customer) {
+    if(deletingId) return;
+    const {data:{user}} = await supabase.auth.getUser();
+    if(!user) { alert('Please sign in again before removing a customer.'); return; }
+    setDeletingId(customer.id);
+    setNotice(null);
+
+    const [billCheck,paymentCheck] = await Promise.all([
+      supabase.from('bills').select('id',{count:'exact',head:true}).eq('customer_id',customer.id),
+      supabase.from('payments').select('id',{count:'exact',head:true}).eq('customer_id',customer.id),
+    ]);
+    if(billCheck.error||paymentCheck.error) {
+      setDeletingId(null);
+      alert('Could not verify this customer’s history. Nothing was removed. '+(billCheck.error?.message||paymentCheck.error?.message||''));
       return;
     }
 
-    setRows(current=>current.filter(customer=>customer.id!==r.id));
-    setNotice('Customer deleted successfully.');
-    await load();
+    const billCount=billCheck.count||0;
+    const paymentCount=paymentCheck.count||0;
+    if(billCount>0||paymentCount>0) {
+      setDeletingId(null);
+      if(confirm(customer.name+' has '+billCount+' bill(s) and '+paymentCount+' payment(s). To protect accounting history, archive this customer instead? Existing bills and statements will remain available, but the customer will no longer appear when creating new bills or payments.')) {
+        await setCustomerArchived(customer,true);
+      }
+      return;
+    }
+
+    if(!confirm('Permanently delete '+customer.name+'? This customer has no recorded bills or payments.')) {
+      setDeletingId(null);
+      return;
+    }
+    const {data,error}=await supabase.from('customers').delete()
+      .eq('id',customer.id).eq('user_id',user.id).select('id');
+    if(error) {
+      setDeletingId(null);
+      if(confirm('The database blocked permanent deletion. Archive this customer instead so they are removed from active dropdowns?')) {
+        await setCustomerArchived(customer,true);
+      } else {
+        alert('Delete failed: '+error.message);
+      }
+      return;
+    }
+    setDeletingId(null);
+    if(!data?.length) {
+      alert('No customer was deleted. Please verify the customers DELETE policy in Supabase.');
+      return;
+    }
+    setNotice(customer.name+' was permanently deleted.');
+    await load(showArchived);
   }
 
   const list = rows.filter(r=>(r.name+' '+(r.phone||'')).toLowerCase().includes(q.toLowerCase()));
@@ -395,9 +425,12 @@ function Customers() {
     {loadError&&<div role='alert' className='mt-5 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900'><span className='font-bold'>Attention:</span><span className='min-w-0 break-words'>{loadError}</span></div>}
 
     <section className='card mt-6 overflow-hidden'>
-      <div className='flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
-        <div><h2 className='font-black text-slate-900'>Customer directory</h2><p className='mt-1 text-xs text-slate-500'>{loading?'Loading records…':list.length+' of '+rows.length+' customers'}</p></div>
-        <div className='relative w-full sm:max-w-sm'><Search className='pointer-events-none absolute left-3 top-3.5 text-slate-400' size={18}/><input className='field pl-10' aria-label='Search customer or mobile' placeholder='Search name or mobile…' value={q} onChange={e=>setQ(e.target.value)}/></div>
+      <div className='flex flex-col gap-4 border-b border-slate-100 bg-white p-4 sm:p-5'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div><h2 className='font-black text-slate-900'>{showArchived?'All customers':'Customer directory'}</h2><p className='mt-1 text-xs text-slate-500'>{loading?'Loading records…':list.length+' shown · '+rows.length+' total'+(showArchived?' including archived':' active')}</p></div>
+          <button type='button' className='btn btn-secondary w-full sm:w-auto' onClick={()=>{const next=!showArchived;setShowArchived(next);void load(next)}}>{showArchived?<RotateCcw size={16}/>:<Archive size={16}/>} {showArchived?'Hide archived':'Show archived'}</button>
+        </div>
+        <div className='relative w-full'><Search className='pointer-events-none absolute left-3 top-3.5 text-slate-400' size={18}/><input className='field pl-10' aria-label='Search customer or mobile' placeholder='Search name, mobile or address…' value={q} onChange={e=>setQ(e.target.value)}/></div>
       </div>
 
       {loading?<div className='p-10 text-center'><div className='mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-blue'/><p className='mt-3 text-sm text-slate-500'>Loading customer records…</p></div>
@@ -405,19 +438,21 @@ function Customers() {
         {list.map(r=><article key={r.id} className='grid gap-3 p-4 transition-colors hover:bg-slate-50/80 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 sm:px-5'>
           <button type='button' onClick={()=>setLedger(r.id)} className='flex min-w-0 items-start gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue'>
             <span className='grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-sky-50 text-sm font-black uppercase text-brand-blue'>{(r.name||'C').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('')}</span>
-            <span className='min-w-0 flex-1'><span className='block break-words font-bold text-slate-900'>{r.name}</span><span className='mt-1 block break-words text-xs text-slate-500'>{r.phone||'No mobile number'}{r.address?' · '+r.address:''}</span></span>
+            <span className='min-w-0 flex-1'><span className='flex flex-wrap items-center gap-2 font-bold text-slate-900'><span className='break-words'>{r.name}</span>{r.is_archived&&<span className='rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-500'>Archived</span>}</span><span className='mt-1 block break-words text-xs text-slate-500'>{r.phone||'No mobile number'}{r.address?' · '+r.address:''}</span></span>
           </button>
           <div className='flex flex-wrap items-center justify-between gap-3 sm:justify-end'>
             <div className='min-w-[112px] sm:text-right'><p className='text-[10px] font-black uppercase tracking-wider text-slate-400'>Current due</p><p className={'mt-1 text-base font-black '+(Number(r.current_due)>0?'text-brand-orange':'text-emerald-600')}>{balancesReady?'₹ '+Number(r.current_due).toLocaleString('en-IN'):'—'}</p></div>
             <div className='flex flex-1 items-center justify-end gap-2 sm:flex-none'>
               <button type='button' onClick={()=>openEdit(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-brand-blue sm:flex-none'><Save size={14}/> Edit</button>
-              <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Checking…':'Delete'}</button>
+              {r.is_archived
+                ? <button type='button' disabled={deletingId!==null} onClick={()=>void setCustomerArchived(r,false)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-extrabold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600'/>:<RotateCcw size={14}/>} {deletingId===r.id?'Working…':'Restore'}</button>
+                : <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Working…':'Remove'}</button>}
             </div>
           </div>
         </article>)}
         {!list.length&&<div className='p-10 text-center'><div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500'><Users size={22}/></div><p className='mt-3 font-bold text-slate-800'>{q?'No matching customers':'No customers yet'}</p><p className='mt-1 text-sm text-slate-500'>{q?'Try a different name or mobile number.':'Add your first customer to start billing.'}</p></div>}
       </div>}
-      <div className='flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500'><span>Tip: open a customer row to see their ledger.</span><button type='button' onClick={()=>void load()} className='font-bold text-brand-blue hover:underline'>Refresh list</button></div>
+      <div className='flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between'><span>Open a customer to view their ledger. Customers with billing history are archived, not erased.</span><button type='button' onClick={()=>void load(showArchived)} className='inline-flex min-h-10 items-center justify-center rounded-lg px-3 font-bold text-brand-blue hover:bg-white'>Refresh list</button></div>
     </section>
 
     {show&&<Modal title={editing?'Edit Customer':'New Customer'} close={resetForm}><form onSubmit={save} className='space-y-4'>
@@ -456,7 +491,7 @@ function CustomerPicker({customers,value,onChange,placeholder}:{customers:Custom
       <div className='border-b border-slate-100 bg-slate-50 p-3'><div className='relative'><Search size={17} className='pointer-events-none absolute left-3 top-3.5 text-slate-400'/><input autoFocus className='field bg-white pl-10' aria-label='Search customers' placeholder='Type customer name or mobile…' value={search} onChange={event=>setSearch(event.target.value)} onKeyDown={event=>{if(event.key==='Escape')setOpen(false)}}/></div><p className='mt-2 px-1 text-[11px] font-semibold text-slate-500'>Showing {filtered.length} of {customers.length} customers</p></div>
       <div role='listbox' className='max-h-[min(48dvh,22rem)] overflow-y-auto overscroll-contain p-1.5'>
         {filtered.map(customer=><button type='button' role='option' aria-selected={customer.id===value} key={customer.id} onClick={()=>choose(customer)} className={'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition '+(customer.id===value?'bg-sky-50':'hover:bg-slate-50')}>
-          <span className='flex min-w-0 items-center gap-2.5'><span className='grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-black uppercase text-slate-600'>{(customer.name||'C').trim().split(/\\s+/).slice(0,2).map(part=>part[0]).join('')}</span><span className='min-w-0'><span className='block break-words text-sm font-bold text-slate-900'>{customer.name}</span><span className='mt-0.5 block truncate text-xs text-slate-500'>{customer.phone||'No mobile number'}</span></span></span>
+          <span className='flex min-w-0 items-center gap-2.5'><span className='grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-black uppercase text-slate-600'>{(customer.name||'C').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('')}</span><span className='min-w-0'><span className='block break-words text-sm font-bold text-slate-900'>{customer.name}</span><span className='mt-0.5 block truncate text-xs text-slate-500'>{customer.phone||'No mobile number'}</span></span></span>
           <span className='flex shrink-0 items-center gap-2'>{Number.isFinite(Number(customer.current_due))&&<span className={'text-xs font-bold '+(Number(customer.current_due)>0?'text-brand-orange':'text-slate-400')}>₹ {Number(customer.current_due).toLocaleString('en-IN')}</span>}{customer.id===value&&<Check size={17} className='text-brand-blue'/>}</span>
         </button>)}
         {!filtered.length&&<div className='px-4 py-8 text-center'><Search size={22} className='mx-auto text-slate-300'/><p className='mt-2 text-sm font-bold text-slate-700'>No matching customer</p><p className='mt-1 text-xs text-slate-500'>Try another spelling or mobile number.</p></div>}
