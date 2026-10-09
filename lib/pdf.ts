@@ -70,7 +70,7 @@ const MUTED = [100, 116, 139] as const;
 const LIGHT = [241, 245, 249] as const;
 
 function money(value: number) {
-  return 'BDT ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return '₹ ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 function dateText(value: string) {
@@ -121,15 +121,31 @@ async function logoDataUrl(customUrl?: string | null) {
       image.src = url;
     });
     const canvas = document.createElement('canvas');
-    canvas.width = 900;
-    canvas.height = 380;
+    // Keep the embedded logo compact: a 600 × 250 JPEG is more than enough
+    // for an A4 invoice and is far smaller than the previous 900 × 380 PNG.
+    canvas.width = 600;
+    canvas.height = 250;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas unavailable');
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const sourceWidth = image.naturalWidth || image.width || canvas.width;
+    const sourceHeight = image.naturalHeight || image.height || canvas.height;
+    const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(
+      image,
+      (canvas.width - drawWidth) / 2,
+      (canvas.height - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
     URL.revokeObjectURL(url);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL('image/jpeg', 0.72);
   } catch {
     return null;
   }
@@ -148,7 +164,7 @@ function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBrandi
   if (brand.pdf_template === 'minimal') {
     doc.setFillColor(255,255,255);
     doc.rect(0,0,210,37,'F');
-    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,7,52,20);
+    if (logo && brand.show_logo) doc.addImage(logo,'JPEG',12,7,52,20);
     doc.setTextColor(...primary as [number,number,number]);
     doc.setFont('helvetica','bold');
     doc.setFontSize(13);
@@ -166,7 +182,7 @@ function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBrandi
     doc.rect(0,0,210,45,'F');
     doc.setFillColor(...accent);
     doc.rect(0,0,210,3,'F');
-    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,8,62,25);
+    if (logo && brand.show_logo) doc.addImage(logo,'JPEG',12,8,62,25);
     doc.setTextColor(255,255,255);
     doc.setFont('helvetica','bold');
     doc.setFontSize(15);
@@ -185,7 +201,7 @@ function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBrandi
   if (brand.pdf_template === 'modern') {
     doc.setFillColor(247,250,254);
     doc.rect(0,0,210,49,'F');
-    if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,8,58,22);
+    if (logo && brand.show_logo) doc.addImage(logo,'JPEG',12,8,58,22);
     doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
     doc.setFontSize(15);
@@ -203,58 +219,38 @@ function header(doc: jsPDF, logo: string | null, title: string, brand: PdfBrandi
     return;
   }
 
-  // Travel Premium
+  // Travel Premium — clean, contemporary layout with a compact accent panel.
   doc.setFillColor(255,255,255);
   doc.rect(0,0,210,49,'F');
-  doc.setFillColor(242,247,253);
-  doc.rect(118,0,92,49,'F');
-
-  doc.setFillColor(...INK);
-  doc.rect(150,31,6,18,'F');
-  doc.rect(159,24,8,25,'F');
-  doc.rect(170,28,6,21,'F');
-  doc.rect(179,19,8,30,'F');
-  doc.rect(191,26,6,23,'F');
-  doc.rect(201,33,4,16,'F');
+  doc.setFillColor(...primary);
+  doc.rect(136,0,74,49,'F');
   doc.setFillColor(...accent);
-  doc.rect(150,31,6,1.2,'F');
-  doc.rect(159,24,8,1.2,'F');
-  doc.rect(179,19,8,1.2,'F');
+  doc.rect(0,0,210,2,'F');
 
-  doc.setDrawColor(...BLUE);
-  doc.setLineWidth(0.55);
-  doc.circle(176,28,10,'S');
-  doc.line(166,28,186,28);
-  doc.ellipse(176,28,4.5,10,'S');
-  doc.line(168,23,184,23);
-  doc.line(168,33,184,33);
+  if (logo && brand.show_logo) doc.addImage(logo,'JPEG',12,7,54,23);
 
-  doc.setDrawColor(...accent);
-  doc.line(121,16,139,12);
-  doc.line(139,12,150,15);
-  doc.setDrawColor(...INK);
-  doc.line(141,12,153,9);
-  doc.line(153,9,156,12);
-  doc.line(153,9,149,6);
-  doc.line(149,12,145,17);
-
-  if (logo && brand.show_logo) doc.addImage(logo,'PNG',12,7,72,23);
-  doc.setTextColor(...INK);
+  doc.setTextColor(...primary);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(15);
-  doc.text(brand.company_name,12,37);
+  doc.setFontSize(13.5);
+  const companyLines = doc.splitTextToSize(brand.company_name || DEFAULT_BRANDING.company_name, 118);
+  doc.text(companyLines.slice(0,1),12,35);
   doc.setTextColor(...MUTED);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(7.2);
-  doc.text(brand.tagline || 'Your Trusted Travel Partner',12,43);
-  doc.setTextColor(...accent);
+  doc.setFontSize(7);
+  const taglineLines = doc.splitTextToSize(brand.tagline || 'Your Trusted Travel Partner', 118);
+  doc.text(taglineLines.slice(0,1),12,42);
+
+  doc.setTextColor(255,255,255);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(7.5);
-  doc.text('AIR TICKET  •  TOUR PACKAGE  •  VISA  •  HOTEL',120,46);
+  doc.setFontSize(8);
+  const titleLines = doc.splitTextToSize(title.toUpperCase(), 60);
+  doc.text(titleLines.slice(0,2),198,17,{align:'right'});
+  doc.setTextColor(226,232,240);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(6.2);
+  doc.text('FLIGHTS  •  TOURS  •  VISA  •  HOTELS',198,31,{align:'right'});
   doc.setFillColor(...accent);
-  doc.rect(0,47,210,1,'F');
-  doc.setFillColor(...INK);
-  doc.rect(0,48,210,1,'F');
+  doc.rect(0,47,210,2,'F');
 }
 function pill(doc: jsPDF, x: number, y: number, w: number, label: string, value: string) {
   doc.setFillColor(247,250,254);
@@ -339,8 +335,24 @@ function brandingFooter(doc: jsPDF, brand: PdfBranding) {
 
 
 
+function drawBillTableHeader(doc: jsPDF, y: number) {
+  doc.setFillColor(...INK);
+  doc.roundedRect(15,y,180,11,2,2,'F');
+  doc.setFillColor(...ORANGE);
+  doc.roundedRect(15,y,3,11,1.5,1.5,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(6.7);
+  doc.text('#',20,y+7);
+  doc.text('PASSENGER',28,y+7);
+  doc.text('TRAVEL DATE',65,y+7);
+  doc.text('SERVICE / DETAILS',97,y+7);
+  doc.text('AMOUNT (₹)',190,y+7,{align:'right'});
+  return y+16;
+}
+
 export async function buildBillPdf(data: BillPdfData) {
-  const doc = new jsPDF({unit:'mm',format:'a4'});
+  const doc = new jsPDF({unit:'mm',format:'a4',compress:true,putOnlyUsedFonts:true,precision:2});
   const brand = await businessBranding();
   const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
 
@@ -350,38 +362,26 @@ export async function buildBillPdf(data: BillPdfData) {
   pill(doc,73,94,54,'Bill Date',dateText(data.billDate));
   pill(doc,131,94,64,'Document','Booking Bill');
 
-  let y=123;
-  // Premium invoice table header.
-  doc.setFillColor(...INK);
-  doc.roundedRect(15,y,180,12,2.5,2.5,'F');
-  doc.setFillColor(...ORANGE);
-  doc.roundedRect(15,y,4,12,2.5,2.5,'F');
-
-  doc.setTextColor(255,255,255);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(6.8);
-  doc.text('#',20,y+7.5);
-  doc.text('PASSENGER',28,y+7.5);
-  doc.text('TRAVEL DATE',65,y+7.5);
-  doc.text('SERVICE / DETAILS',97,y+7.5);
-  doc.text('AMOUNT (BDT)',190,y+7.5,{align:'right'});
-  y+=18;
+  let y=117;
+  y=drawBillTableHeader(doc,y);
 
   doc.setFontSize(8);
   let itemIndex = 0;
   for(const item of data.items){
     const detail=[item.service_type||'Travel Service',item.details].filter(Boolean).join('  ·  ');
     const lines=doc.splitTextToSize(detail,66);
-    const rowH=Math.max(14,lines.length*4.1+7);
-    if(y+rowH>250){
+    const passengerLines=doc.splitTextToSize(item.passenger_name||'Passenger',32);
+    const rowH=Math.max(10.5,Math.max(lines.length,passengerLines.length)*3.2+4.5);
+    if(y+rowH>222){
       doc.addPage();
       header(doc,logo,'Booking Bill',brand);
       y=58;
+      y=drawBillTableHeader(doc,y);
     }
     const rowFill = itemIndex % 2 === 0 ? [249,251,253] : [244,248,252];
     doc.setFillColor(rowFill[0], rowFill[1], rowFill[2]);
     doc.setDrawColor(226,232,240);
-    doc.roundedRect(15,y-6,180,rowH,2.5,2.5,'FD');
+    doc.roundedRect(15,y-5,180,rowH,2,2,'FD');
 
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
@@ -389,23 +389,32 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.text(String(itemIndex + 1),20,y+1);
 
     doc.setTextColor(...INK);
-    doc.setFontSize(7.5);
-    doc.text(item.passenger_name||'Passenger',28,y+1);
+    doc.setFontSize(7.2);
+    doc.text(passengerLines.slice(0,2),28,y+1);
 
     doc.setFont('helvetica','normal');
     doc.setTextColor(...MUTED);
+    doc.setFontSize(7);
     doc.text(item.travel_date?dateText(item.travel_date):'—',65,y+1);
 
     doc.setTextColor(...INK);
-    doc.text(lines,97,y+1);
+    doc.text(lines.slice(0,3),97,y+1);
 
     doc.setFont('helvetica','bold');
+    doc.setFontSize(7.2);
     doc.text(money(item.amount),190,y+1,{align:'right'});
-    y+=rowH+2;
+    y+=rowH+1.2;
     itemIndex += 1;
   }
 
-  y=Math.max(y+7,190);
+  // Put the financial summary on a fresh page when a long bill would
+  // otherwise collide with the footer or the summary card.
+  if(y>210){
+    doc.addPage();
+    header(doc,logo,'Booking Bill',brand);
+    y=58;
+  }
+  y=Math.max(y+4,166);
 
   // Right-side premium payment summary.
   doc.setFillColor(248,250,253);
@@ -446,13 +455,18 @@ export async function buildBillPdf(data: BillPdfData) {
   doc.setFont('helvetica','normal');
   doc.setFontSize(7);
   doc.text('Thank you for choosing ' + brand.company_name + '.',105,278,{align:'center'});
-  brandingFooter(doc,brand);
+  // Add a consistent footer to every page, not just the last one.
+  const pageCount = doc.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    doc.setPage(page);
+    brandingFooter(doc,brand);
+  }
   return doc;
 }
 
 
 export async function buildPaymentPdf(data: PaymentPdfData) {
-  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const doc=new jsPDF({unit:'mm',format:'a4',compress:true,putOnlyUsedFonts:true,precision:2});
   const brand = await businessBranding();
   const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
 

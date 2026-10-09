@@ -77,9 +77,9 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     data.billNo +
     '\nCustomer: ' +
     data.customerName +
-    '\nToday\'s Bill: BDT ' +
+    '\nToday\'s Bill: INR ' +
     data.subtotal.toLocaleString('en-IN') +
-    '\nTotal Due: BDT ' +
+    '\nTotal Due: INR ' +
     data.totalDue.toLocaleString('en-IN') +
     '\nPlease find the bill attached.';
 
@@ -189,9 +189,9 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
     data.billNo +
     '\nCustomer: ' +
     data.customerName +
-    '\nToday\'s Bill: BDT ' +
+    '\nToday\'s Bill: INR ' +
     data.subtotal.toLocaleString('en-IN') +
-    '\nTotal Due: BDT ' +
+    '\nTotal Due: INR ' +
     data.totalDue.toLocaleString('en-IN') +
     '\nPlease find the bill attached.';
 
@@ -274,9 +274,9 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
     data.paymentNo +
     '\nCustomer: ' +
     data.customerName +
-    '\nReceived: BDT ' +
+    '\nReceived: INR ' +
     data.amount.toLocaleString('en-IN') +
-    '\nRemaining Due: BDT ' +
+    '\nRemaining Due: INR ' +
     data.remainingDue.toLocaleString('en-IN') +
     '\nPlease find the receipt attached.';
 
