@@ -27,3 +27,16 @@ button{touch-action:manipulation}
   .mobile-scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .mobile-safe-bottom{padding-bottom:calc(1rem + env(safe-area-inset-bottom))}
 }
+
+
+/* Admin UI polish: clearer interaction states and responsive form controls. */
+.field{transition:border-color .16s ease,box-shadow .16s ease,background-color .16s ease}
+.btn{transition:transform .14s ease,box-shadow .14s ease,background-color .14s ease,border-color .14s ease;cursor:pointer}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{cursor:not-allowed;opacity:.55;transform:none}
+button:focus-visible{outline:3px solid rgba(20,135,201,.4);outline-offset:2px}
+::selection{background:rgba(20,135,201,.18)}
+@media (max-width:639px){
+  .field{border-radius:13px}
+  main{padding-bottom:calc(1rem + env(safe-area-inset-bottom))}
+}
