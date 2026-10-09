@@ -19,6 +19,7 @@ type BillRecord = {
   bill_no: string;
   bill_date: string;
   subtotal: number;
+  notes?: string | null;
   created_at?: string | null;
 };
 
@@ -58,7 +59,7 @@ async function fetchPartyRows<T>(
   let offset = 0;
   while (true) {
     const query = table === 'bills'
-      ? supabase.from('bills').select('id,bill_no,bill_date,subtotal,created_at').eq('customer_id', partyId).lte('bill_date', endDate).order('bill_date', { ascending: true }).order('created_at', { ascending: true }).range(offset, offset + pageSize - 1)
+      ? supabase.from('bills').select('id,bill_no,bill_date,subtotal,notes,created_at').eq('customer_id', partyId).lte('bill_date', endDate).order('bill_date', { ascending: true }).order('created_at', { ascending: true }).range(offset, offset + pageSize - 1)
       : supabase.from('payments').select('id,payment_no,payment_date,amount,payment_method,notes,created_at').eq('customer_id', partyId).lte('payment_date', endDate).order('payment_date', { ascending: true }).order('created_at', { ascending: true }).range(offset, offset + pageSize - 1);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -125,7 +126,7 @@ export function PartyStatement() {
           date: bill.bill_date,
           type: 'Bill' as const,
           reference: bill.bill_no,
-          description: 'Travel / booking bill',
+          description: bill.notes?.trim() || 'Travel / booking bill',
           debit: Number(bill.subtotal || 0),
           credit: 0,
           balance: 0,

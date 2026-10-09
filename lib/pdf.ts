@@ -15,6 +15,7 @@ export type BillPdfData = {
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
+  description?: string | null;
   previousDue: number;
   subtotal: number;
   paidNow: number;
@@ -452,18 +453,39 @@ export async function buildBillPdf(data: BillPdfData) {
   function drawFirstPage() {
     drawBrandBanner();
     drawCustomerAndBillInfo();
+
+    let servicesHeadingY = 109;
+    const description = (data.description || '').trim();
+    if (description) {
+      const lines = doc.splitTextToSize(description, 168).slice(0, 4);
+      const boxY = 100;
+      const boxH = 12 + lines.length * 3.5;
+      doc.setFillColor(238,246,252);
+      doc.setDrawColor(218,232,242);
+      doc.roundedRect(15,boxY,180,boxH,2.5,2.5,'FD');
+      doc.setTextColor(...primary);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(6.1);
+      doc.text('DESCRIPTION',22,boxY+4.7);
+      doc.setTextColor(...INK);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(7.1);
+      doc.text(lines,22,boxY+10);
+      servicesHeadingY = boxY + boxH + 8;
+    }
+
     doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
     doc.setFontSize(10.3);
-    doc.text('SERVICE DETAILS',15,109);
+    doc.text('SERVICE DETAILS',15,servicesHeadingY);
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','normal');
     doc.setFontSize(6.8);
-    doc.text(String(data.items.length) + (data.items.length === 1 ? ' service' : ' services'),195,109,{align:'right'});
+    doc.text(String(data.items.length) + (data.items.length === 1 ? ' service' : ' services'),195,servicesHeadingY,{align:'right'});
     doc.setDrawColor(...primary);
     doc.setLineWidth(0.45);
-    doc.line(15,112,195,112);
-    return drawTableHeaderAt(116);
+    doc.line(15,servicesHeadingY+3,195,servicesHeadingY+3);
+    return drawTableHeaderAt(servicesHeadingY+7);
   }
 
   function drawContinuationPage() {
@@ -705,11 +727,11 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(7);
-    doc.text('NOTE',15,241);
+    doc.text('DESCRIPTION',15,241);
     doc.setTextColor(...INK);
     doc.setFont('helvetica','normal');
     doc.setFontSize(8);
-    doc.text(doc.splitTextToSize(data.note,180),15,248);
+    doc.text(doc.splitTextToSize(data.note,180).slice(0,3),15,248);
   }
 
   doc.setTextColor(...MUTED);

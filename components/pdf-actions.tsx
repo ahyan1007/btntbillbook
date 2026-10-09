@@ -81,6 +81,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     data.subtotal.toLocaleString('en-IN') +
     '\nTotal Due: INR ' +
     data.totalDue.toLocaleString('en-IN') +
+    (data.description ? '\nDescription: ' + data.description : '') +
     '\nPlease find the bill attached.';
 
   async function download() {
@@ -278,6 +279,7 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
     data.amount.toLocaleString('en-IN') +
     '\nRemaining Due: INR ' +
     data.remainingDue.toLocaleString('en-IN') +
+    (data.note ? '\nDescription: ' + data.note : '') +
     '\nPlease find the receipt attached.';
 
   async function download() {
