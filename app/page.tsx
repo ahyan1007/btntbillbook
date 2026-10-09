@@ -89,13 +89,13 @@ export default function Home(){
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [authMsg,setAuthMsg]=useState('');
  useEffect(()=>{
   let active=true;
-  supabase.auth.getSession().then(({data})=>{if(active){setSession(current=>current?.user?.id&&current.user.id===data.session?.user?.id?current:data.session);setLoading(false)}});
+  supabase.auth.getSession().then(({data})=>{if(active){setSession((current:any)=>current?.user?.id&&current.user.id===data.session?.user?.id?current:data.session);setLoading(false)}});
   const {data:l}=supabase.auth.onAuthStateChange((_event,nextSession)=>{
     if(!active)return;
     // Supabase refreshes its token when a tab regains activity. Keep the
     // same user session object so this does not re-run the admin gate or
     // replace the active screen with a loading view.
-    setSession(current=>current?.user?.id&&current.user.id===nextSession?.user?.id?current:nextSession);
+    setSession((current:any)=>current?.user?.id&&current.user.id===nextSession?.user?.id?current:nextSession);
   });
   return()=>{active=false;l.subscription.unsubscribe()};
  },[]);
