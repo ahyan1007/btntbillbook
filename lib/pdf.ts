@@ -70,7 +70,7 @@ const MUTED = [100, 116, 139] as const;
 const LIGHT = [241, 245, 249] as const;
 
 function money(value: number) {
-  return 'BDT ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return 'INR ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 function dateText(value: string) {
@@ -364,7 +364,7 @@ export async function buildBillPdf(data: BillPdfData) {
   doc.text('PASSENGER',28,y+7.5);
   doc.text('TRAVEL DATE',65,y+7.5);
   doc.text('SERVICE / DETAILS',97,y+7.5);
-  doc.text('AMOUNT (BDT)',190,y+7.5,{align:'right'});
+  doc.text('AMOUNT (INR)',190,y+7.5,{align:'right'});
   y+=18;
 
   doc.setFontSize(8);
