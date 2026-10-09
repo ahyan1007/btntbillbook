@@ -40,3 +40,24 @@ button:focus-visible{outline:3px solid rgba(20,135,201,.4);outline-offset:2px}
   .field{border-radius:13px}
   main{padding-bottom:calc(1rem + env(safe-area-inset-bottom))}
 }
+
+
+/* Final admin polish: compact, touch-friendly controls and consistent surfaces. */
+:root{color-scheme:light}
+.field::placeholder{color:#94a3b8}
+.field:disabled{background:#f8fafc;color:#94a3b8;cursor:not-allowed}
+.btn:focus-visible,.field:focus-visible{outline:3px solid rgba(20,135,201,.22);outline-offset:2px}
+.card{overflow-wrap:anywhere}
+@media (hover:hover){
+  .btn-primary:hover{background:#0f74ad;box-shadow:0 6px 16px rgba(20,135,201,.18)}
+  .btn-secondary:hover{border-color:#cbd5e1;box-shadow:0 4px 12px rgba(15,23,42,.05)}
+}
+@media (max-width:639px){
+  .btn{min-height:46px}
+  .card{border-radius:15px}
+  main{width:100%;min-width:0}
+  [role="listbox"] button{min-height:58px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}

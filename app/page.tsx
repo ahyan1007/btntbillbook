@@ -1,28 +1,29 @@
 'use client';
 import { useEffect,useMemo,useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { FilePlus2,Users,WalletCards,ReceiptText,ClipboardList,Plus,Search,LogOut,Trash2,Save,Menu,X,ChevronRight } from 'lucide-react';
+import { FilePlus2,Users,WalletCards,ReceiptText,ClipboardList,Plus,Search,LogOut,Trash2,Save,Menu,X,ChevronRight,ChevronDown,Check,Archive,RotateCcw,UserRound } from 'lucide-react';
 import { BillPdfActions, BillHistoryPdfActions, PaymentPdfActions } from '@/components/pdf-actions';
 import { CustomerLedger } from '@/components/customer-ledger';
 import { PwaInstall } from '@/components/pwa-install';
 import { PartyStatement } from '@/components/party-statement';
 
-type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number};
+type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number;is_archived?:boolean};
 type Item={passenger_name:string;travel_date:string;service_type:string;details:string;amount:string};
 type View='dashboard'|'customers'|'bill'|'payments'|'bills'|'statement';
 
 type CustomerLoadResult = { rows: Customer[]; error: string | null; balancesReady: boolean };
 
-async function fetchCustomerRecords(): Promise<CustomerLoadResult> {
+async function fetchCustomerRecords(includeArchived = false): Promise<CustomerLoadResult> {
   const base: any[] = [];
   const pageSize = 500;
 
   for (let start = 0; ; start += pageSize) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('customers')
-      .select('id,name,phone,address,opening_due')
-      .order('name', { ascending: true })
-      .range(start, start + pageSize - 1);
+      .select('id,name,phone,address,opening_due,is_archived')
+      .order('name', { ascending: true });
+    if (!includeArchived) query = query.eq('is_archived', false);
+    const { data, error } = await query.range(start, start + pageSize - 1);
 
     if (error) {
       return {
@@ -308,10 +309,11 @@ function Customers() {
   const [notice,setNotice] = useState<string|null>(null);
   const [saving,setSaving] = useState(false);
   const [deletingId,setDeletingId] = useState<string|null>(null);
+  const [showArchived,setShowArchived] = useState(false);
 
-  async function load() {
+  async function load(includeArchived = showArchived) {
     setLoading(true);
-    const result = await fetchCustomerRecords();
+    const result = await fetchCustomerRecords(includeArchived);
     setRows(result.rows);
     setLoadError(result.error);
     setBalancesReady(result.balancesReady);
@@ -338,51 +340,80 @@ function Customers() {
     await load();
   }
 
-  async function removeCustomer(r:Customer) {
+  async function setCustomerArchived(customer:Customer, archived:boolean) {
     if(deletingId) return;
     const {data:{user}} = await supabase.auth.getUser();
-    if(!user) { alert('Please sign in again before deleting a customer.'); return; }
-    setDeletingId(r.id);
+    if(!user) { alert('Please sign in again before changing customer status.'); return; }
+    setDeletingId(customer.id);
     setNotice(null);
-
-    const [billCheck,paymentCheck] = await Promise.all([
-      supabase.from('bills').select('id',{count:'exact',head:true}).eq('customer_id',r.id),
-      supabase.from('payments').select('id',{count:'exact',head:true}).eq('customer_id',r.id),
-    ]);
-
-    if(billCheck.error||paymentCheck.error) {
-      setDeletingId(null);
-      alert('Could not verify this customer’s history. No deletion was performed. '+(billCheck.error?.message||paymentCheck.error?.message||''));
-      return;
-    }
-
-    const billCount = billCheck.count||0;
-    const paymentCount = paymentCheck.count||0;
-    if(billCount>0||paymentCount>0) {
-      setDeletingId(null);
-      alert('This customer cannot be permanently deleted because the ledger contains '+billCount+' bill(s) and '+paymentCount+' payment(s). Keeping the customer preserves the financial history. You can still edit the customer details.');
-      return;
-    }
-
-    if(!confirm('Permanently delete '+r.name+'? This customer has no recorded bills or payments.')) {
-      setDeletingId(null);
-      return;
-    }
-
-    const {data,error} = await supabase.from('customers').delete().eq('id',r.id).eq('user_id',user.id).select('id');
+    const {data,error} = await supabase.from('customers')
+      .update({is_archived:archived})
+      .eq('id',customer.id).eq('user_id',user.id)
+      .select('id,is_archived');
     setDeletingId(null);
     if(error) {
-      alert('Delete failed: '+error.message);
+      alert('Customer status could not be changed. Apply the customer archive database migration first. '+error.message);
       return;
     }
     if(!data?.length) {
-      alert('No customer was deleted. The database permissions may block deletion for this account. Please check the Supabase customer DELETE policy.');
+      alert('No change was saved. Please check the admin UPDATE policy for customers.');
+      return;
+    }
+    setNotice(archived
+      ? customer.name+' was archived. Their bills and payments remain in the ledger.'
+      : customer.name+' was restored to active customers.');
+    await load(showArchived);
+  }
+
+  async function removeCustomer(customer:Customer) {
+    if(deletingId) return;
+    const {data:{user}} = await supabase.auth.getUser();
+    if(!user) { alert('Please sign in again before removing a customer.'); return; }
+    setDeletingId(customer.id);
+    setNotice(null);
+
+    const [billCheck,paymentCheck] = await Promise.all([
+      supabase.from('bills').select('id',{count:'exact',head:true}).eq('customer_id',customer.id),
+      supabase.from('payments').select('id',{count:'exact',head:true}).eq('customer_id',customer.id),
+    ]);
+    if(billCheck.error||paymentCheck.error) {
+      setDeletingId(null);
+      alert('Could not verify this customer’s history. Nothing was removed. '+(billCheck.error?.message||paymentCheck.error?.message||''));
       return;
     }
 
-    setRows(current=>current.filter(customer=>customer.id!==r.id));
-    setNotice('Customer deleted successfully.');
-    await load();
+    const billCount=billCheck.count||0;
+    const paymentCount=paymentCheck.count||0;
+    if(billCount>0||paymentCount>0) {
+      setDeletingId(null);
+      if(confirm(customer.name+' has '+billCount+' bill(s) and '+paymentCount+' payment(s). To protect accounting history, archive this customer instead? Existing bills and statements will remain available, but the customer will no longer appear when creating new bills or payments.')) {
+        await setCustomerArchived(customer,true);
+      }
+      return;
+    }
+
+    if(!confirm('Permanently delete '+customer.name+'? This customer has no recorded bills or payments.')) {
+      setDeletingId(null);
+      return;
+    }
+    const {data,error}=await supabase.from('customers').delete()
+      .eq('id',customer.id).eq('user_id',user.id).select('id');
+    if(error) {
+      setDeletingId(null);
+      if(confirm('The database blocked permanent deletion. Archive this customer instead so they are removed from active dropdowns?')) {
+        await setCustomerArchived(customer,true);
+      } else {
+        alert('Delete failed: '+error.message);
+      }
+      return;
+    }
+    setDeletingId(null);
+    if(!data?.length) {
+      alert('No customer was deleted. Please verify the customers DELETE policy in Supabase.');
+      return;
+    }
+    setNotice(customer.name+' was permanently deleted.');
+    await load(showArchived);
   }
 
   const list = rows.filter(r=>(r.name+' '+(r.phone||'')).toLowerCase().includes(q.toLowerCase()));
@@ -394,9 +425,12 @@ function Customers() {
     {loadError&&<div role='alert' className='mt-5 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900'><span className='font-bold'>Attention:</span><span className='min-w-0 break-words'>{loadError}</span></div>}
 
     <section className='card mt-6 overflow-hidden'>
-      <div className='flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
-        <div><h2 className='font-black text-slate-900'>Customer directory</h2><p className='mt-1 text-xs text-slate-500'>{loading?'Loading records…':list.length+' of '+rows.length+' customers'}</p></div>
-        <div className='relative w-full sm:max-w-sm'><Search className='pointer-events-none absolute left-3 top-3.5 text-slate-400' size={18}/><input className='field pl-10' aria-label='Search customer or mobile' placeholder='Search name or mobile…' value={q} onChange={e=>setQ(e.target.value)}/></div>
+      <div className='flex flex-col gap-4 border-b border-slate-100 bg-white p-4 sm:p-5'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div><h2 className='font-black text-slate-900'>{showArchived?'All customers':'Customer directory'}</h2><p className='mt-1 text-xs text-slate-500'>{loading?'Loading records…':list.length+' shown · '+rows.length+' total'+(showArchived?' including archived':' active')}</p></div>
+          <button type='button' className='btn btn-secondary w-full sm:w-auto' onClick={()=>{const next=!showArchived;setShowArchived(next);void load(next)}}>{showArchived?<RotateCcw size={16}/>:<Archive size={16}/>} {showArchived?'Hide archived':'Show archived'}</button>
+        </div>
+        <div className='relative w-full'><Search className='pointer-events-none absolute left-3 top-3.5 text-slate-400' size={18}/><input className='field pl-10' aria-label='Search customer or mobile' placeholder='Search name, mobile or address…' value={q} onChange={e=>setQ(e.target.value)}/></div>
       </div>
 
       {loading?<div className='p-10 text-center'><div className='mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-blue'/><p className='mt-3 text-sm text-slate-500'>Loading customer records…</p></div>
@@ -404,19 +438,21 @@ function Customers() {
         {list.map(r=><article key={r.id} className='grid gap-3 p-4 transition-colors hover:bg-slate-50/80 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 sm:px-5'>
           <button type='button' onClick={()=>setLedger(r.id)} className='flex min-w-0 items-start gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue'>
             <span className='grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-sky-50 text-sm font-black uppercase text-brand-blue'>{(r.name||'C').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('')}</span>
-            <span className='min-w-0 flex-1'><span className='block break-words font-bold text-slate-900'>{r.name}</span><span className='mt-1 block break-words text-xs text-slate-500'>{r.phone||'No mobile number'}{r.address?' · '+r.address:''}</span></span>
+            <span className='min-w-0 flex-1'><span className='flex flex-wrap items-center gap-2 font-bold text-slate-900'><span className='break-words'>{r.name}</span>{r.is_archived&&<span className='rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-500'>Archived</span>}</span><span className='mt-1 block break-words text-xs text-slate-500'>{r.phone||'No mobile number'}{r.address?' · '+r.address:''}</span></span>
           </button>
           <div className='flex flex-wrap items-center justify-between gap-3 sm:justify-end'>
             <div className='min-w-[112px] sm:text-right'><p className='text-[10px] font-black uppercase tracking-wider text-slate-400'>Current due</p><p className={'mt-1 text-base font-black '+(Number(r.current_due)>0?'text-brand-orange':'text-emerald-600')}>{balancesReady?'₹ '+Number(r.current_due).toLocaleString('en-IN'):'—'}</p></div>
             <div className='flex flex-1 items-center justify-end gap-2 sm:flex-none'>
               <button type='button' onClick={()=>openEdit(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-brand-blue sm:flex-none'><Save size={14}/> Edit</button>
-              <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Checking…':'Delete'}</button>
+              {r.is_archived
+                ? <button type='button' disabled={deletingId!==null} onClick={()=>void setCustomerArchived(r,false)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-extrabold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600'/>:<RotateCcw size={14}/>} {deletingId===r.id?'Working…':'Restore'}</button>
+                : <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Working…':'Remove'}</button>}
             </div>
           </div>
         </article>)}
         {!list.length&&<div className='p-10 text-center'><div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500'><Users size={22}/></div><p className='mt-3 font-bold text-slate-800'>{q?'No matching customers':'No customers yet'}</p><p className='mt-1 text-sm text-slate-500'>{q?'Try a different name or mobile number.':'Add your first customer to start billing.'}</p></div>}
       </div>}
-      <div className='flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500'><span>Tip: open a customer row to see their ledger.</span><button type='button' onClick={()=>void load()} className='font-bold text-brand-blue hover:underline'>Refresh list</button></div>
+      <div className='flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between'><span>Open a customer to view their ledger. Customers with billing history are archived, not erased.</span><button type='button' onClick={()=>void load(showArchived)} className='inline-flex min-h-10 items-center justify-center rounded-lg px-3 font-bold text-brand-blue hover:bg-white'>Refresh list</button></div>
     </section>
 
     {show&&<Modal title={editing?'Edit Customer':'New Customer'} close={resetForm}><form onSubmit={save} className='space-y-4'>
@@ -431,11 +467,42 @@ function Customers() {
 }
 
 function Head({title,sub,action}:{title:string;sub:string;action?:React.ReactNode}){return <div className='flex flex-col justify-between gap-4 md:flex-row md:items-end'><div className='min-w-0'><p className='text-xs font-bold text-brand-blue sm:text-sm'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-2xl font-black tracking-tight sm:text-3xl'>{title}</h1><p className='mt-2 max-w-2xl text-sm leading-6 text-slate-500'>{sub}</p></div>{action&&<div className='w-full md:w-auto md:shrink-0'>{action}</div>}</div>}
-function Modal({title,close,children}:{title:string;close:()=>void;children:React.ReactNode}){return <div className='fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4'><div className='card w-full max-w-md p-6'><div className='flex items-center justify-between'><h2 className='text-xl font-black'>{title}</h2><button onClick={close} className='text-slate-400'>✕</button></div><div className='mt-6'>{children}</div></div></div>}
+function Modal({title,close,children}:{title:string;close:()=>void;children:React.ReactNode}) {
+  return <div className='fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-4'>
+    <div className='card max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-b-none p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:p-6'>
+      <div className='flex items-center justify-between gap-3'><h2 className='text-xl font-black'>{title}</h2><button type='button' onClick={close} className='grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100' aria-label='Close dialog'><X size={20}/></button></div>
+      <div className='mt-5'>{children}</div>
+    </div>
+  </div>;
+}
 
-function NewBill({onDone}:{onDone:()=>void}){const [customers,setCustomers]=useState<Customer[]>([]);const [customerId,setCustomerId]=useState('');const [items,setItems]=useState<Item[]>([{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}]);const [paid,setPaid]=useState('0');const [method,setMethod]=useState('Cash');const [saving,setSaving]=useState(false);const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);useEffect(()=>{let active=true;(async()=>{const result=await fetchCustomerRecords();if(!active)return;setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)})();return()=>{active=false}},[]);const c=customers.find(x=>x.id===customerId);const subtotal=useMemo(()=>items.reduce((s,i)=>s+(Number(i.amount)||0),0),[items]);const total=Math.max(Number(c?.current_due||0)+subtotal-(Number(paid)||0),0);function upd(i:number,k:keyof Item,v:string){setItems(a=>a.map((x,n)=>n===i?{...x,[k]:v}:x))}async function save(){if(!customerId||subtotal<=0||!balancesReady||saving)return;setSaving(true);const {data,error}=await supabase.rpc('create_bill',{p_customer_id:customerId,p_bill_date:new Date().toISOString().slice(0,10),p_items:items.map(x=>({...x,amount:Number(x.amount)})),p_paid_now:Number(paid)||0,p_payment_method:method,p_notes:null});setSaving(false);if(error){alert(error.message);return}setDone(data);onDone()}if(done)return <div className='card mx-auto max-w-xl p-8 text-center'><div className='mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600'>✓</div><h1 className='mt-5 text-2xl font-black'>Bill saved</h1><p className='mt-2 text-slate-500'>Bill <b>{done.bill_no}</b> created successfully.</p><div className='mt-6 grid grid-cols-2 gap-3 text-left'><div className='rounded-xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Today's Bill</p><p className='mt-1 text-xl font-black'>₹ {subtotal.toLocaleString('en-IN')}</p></div><div className='rounded-xl bg-orange-50 p-4'><p className='text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-xl font-black text-brand-orange'>₹ {Number(done.total_due).toLocaleString('en-IN')}</p></div></div><div className='mt-6'><BillPdfActions data={{billNo:done.bill_no,billDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,previousDue:Number(done.previous_due||0),subtotal:Number(done.subtotal||subtotal),paidNow:Number(done.paid_now||paid||0),totalDue:Number(done.total_due||0),items:items.map(x=>({...x,amount:Number(x.amount||0)}))}}/></div><button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Create another bill</button></div>;return <><Head title='New Bill' sub='Add passengers and ticket amounts. Previous due is automatic.'/><div className='mt-6 grid gap-6 xl:grid-cols-[1fr_360px]'><div className='space-y-5'><div className='card p-5'><label className='label'>Customer</label><select className='field' value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value=''>Select customer ({customers.length} available)</option>{customers.map(x=><option key={x.id} value={x.id}>{x.name}{x.phone?' — '+x.phone:''}</option>)}</select>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}{!customers.length&&!customerError&&<p className='mt-2 text-xs text-slate-500'>No customers available yet. Add a customer first.</p>}{c&&<div className='mt-3 rounded-xl bg-orange-50 p-4 text-sm'><span className='text-slate-500'>Previous due</span><strong className='float-right text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</strong></div>}</div><div className='card p-5'><div className='mb-4 flex items-center justify-between'><h2 className='font-black'>Booking details</h2><button onClick={()=>setItems(a=>[...a,{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}])} className='btn btn-secondary'><Plus size={16}/> Add passenger</button></div><div className='space-y-4'>{items.map((it,i)=><div key={i} className='rounded-2xl border border-slate-200 p-4'><div className='mb-4 flex items-center justify-between'><span className='text-xs font-black uppercase tracking-widest text-brand-blue'>Passenger {i+1}</span>{items.length>1&&<button onClick={()=>setItems(a=>a.filter((_,n)=>n!==i))} className='text-slate-400'><Trash2 size={16}/></button>}</div><div className='grid gap-3 md:grid-cols-2'><div><label className='label'>Passenger name</label><input className='field' value={it.passenger_name} onChange={e=>upd(i,'passenger_name',e.target.value)} placeholder='Asim'/></div><div><label className='label'>Flight date</label><input className='field' type='date' value={it.travel_date} onChange={e=>upd(i,'travel_date',e.target.value)}/></div><div><label className='label'>Service</label><select className='field' value={it.service_type} onChange={e=>upd(i,'service_type',e.target.value)}><option>Flight Ticket</option><option>Bus Ticket</option><option>Hotel Booking</option><option>Visa Processing</option><option>Tour Package</option><option>Other</option></select></div><div><label className='label'>Amount</label><input className='field' type='number' min='0' value={it.amount} onChange={e=>upd(i,'amount',e.target.value)} placeholder='5000'/></div><div className='md:col-span-2'><label className='label'>Details</label><input className='field' value={it.details} onChange={e=>upd(i,'details',e.target.value)} placeholder='Airline / route / PNR'/></div></div></div>)}</div></div></div><aside className='card h-fit p-5 xl:sticky xl:top-24'><h2 className='font-black'>Bill summary</h2><div className='mt-5 space-y-4 text-sm'><div className='flex justify-between'><span className='text-slate-500'>Previous Due</span><b>₹ {Number(c?.current_due||0).toLocaleString('en-IN')}</b></div><div className='flex justify-between'><span className='text-slate-500'>Today's Bill</span><b>₹ {subtotal.toLocaleString('en-IN')}</b></div><div><label className='label'>Payment now</label><input className='field' type='number' min='0' value={paid} onChange={e=>setPaid(e.target.value)}/></div>{Number(paid)>0&&<div><label className='label'>Payment method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>}<div className='rounded-2xl bg-brand-ink p-4 text-white'><div className='text-xs text-slate-300'>Remaining Due</div><div className='mt-1 text-3xl font-black'>₹ {total.toLocaleString('en-IN')}</div></div><button disabled={saving||!customerId||subtotal<=0||!balancesReady} onClick={save} className='btn btn-primary w-full'><Save size={17}/>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Bill'}</button></div></aside></div></>}
+function CustomerPicker({customers,value,onChange,placeholder}:{customers:Customer[];value:string;onChange:(value:string)=>void;placeholder:string}) {
+  const [open,setOpen]=useState(false);
+  const [search,setSearch]=useState('');
+  const selected=customers.find(customer=>customer.id===value);
+  const filtered=customers.filter(customer=>(customer.name+' '+(customer.phone||'')+' '+(customer.address||'')).toLowerCase().includes(search.trim().toLowerCase()));
+  function choose(customer:Customer) { onChange(customer.id); setSearch(''); setOpen(false); }
+  return <div className='relative'>
+    <button type='button' className={'field flex min-h-12 items-center justify-between gap-3 text-left '+(open?'border-brand-blue ring-2 ring-sky-100':'')} aria-haspopup='listbox' aria-expanded={open} onClick={()=>setOpen(v=>!v)}>
+      <span className='flex min-w-0 items-center gap-3'><span className='grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-50 text-brand-blue'><UserRound size={17}/></span><span className='min-w-0'><span className={'block truncate text-sm '+(selected?'font-bold text-slate-900':'font-medium text-slate-400')}>{selected?.name||placeholder}</span><span className='mt-0.5 block truncate text-xs text-slate-500'>{selected ? (selected.phone||'No mobile number') : customers.length+' active customers available'}</span></span></span>
+      <ChevronDown size={18} className={'shrink-0 text-slate-400 transition-transform '+(open?'rotate-180':'')}/>
+    </button>
+    {open&&<div className='absolute inset-x-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15'>
+      <div className='border-b border-slate-100 bg-slate-50 p-3'><div className='relative'><Search size={17} className='pointer-events-none absolute left-3 top-3.5 text-slate-400'/><input autoFocus className='field bg-white pl-10' aria-label='Search customers' placeholder='Type customer name or mobile…' value={search} onChange={event=>setSearch(event.target.value)} onKeyDown={event=>{if(event.key==='Escape')setOpen(false)}}/></div><p className='mt-2 px-1 text-[11px] font-semibold text-slate-500'>Showing {filtered.length} of {customers.length} customers</p></div>
+      <div role='listbox' className='max-h-[min(48dvh,22rem)] overflow-y-auto overscroll-contain p-1.5'>
+        {filtered.map(customer=><button type='button' role='option' aria-selected={customer.id===value} key={customer.id} onClick={()=>choose(customer)} className={'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition '+(customer.id===value?'bg-sky-50':'hover:bg-slate-50')}>
+          <span className='flex min-w-0 items-center gap-2.5'><span className='grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-black uppercase text-slate-600'>{(customer.name||'C').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('')}</span><span className='min-w-0'><span className='block break-words text-sm font-bold text-slate-900'>{customer.name}</span><span className='mt-0.5 block truncate text-xs text-slate-500'>{customer.phone||'No mobile number'}</span></span></span>
+          <span className='flex shrink-0 items-center gap-2'>{Number.isFinite(Number(customer.current_due))&&<span className={'text-xs font-bold '+(Number(customer.current_due)>0?'text-brand-orange':'text-slate-400')}>₹ {Number(customer.current_due).toLocaleString('en-IN')}</span>}{customer.id===value&&<Check size={17} className='text-brand-blue'/>}</span>
+        </button>)}
+        {!filtered.length&&<div className='px-4 py-8 text-center'><Search size={22} className='mx-auto text-slate-300'/><p className='mt-2 text-sm font-bold text-slate-700'>No matching customer</p><p className='mt-1 text-xs text-slate-500'>Try another spelling or mobile number.</p></div>}
+      </div>
+    </div>}
+  </div>;
+}
 
-function Payments(){const [customers,setCustomers]=useState<Customer[]>([]);const [id,setId]=useState('');const [amount,setAmount]=useState('');const [method,setMethod]=useState('Cash');const [note,setNote]=useState('');const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);const [saving,setSaving]=useState(false);async function load(){const result=await fetchCustomerRecords();setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)}useEffect(()=>{void load()},[]);const c=customers.find(x=>x.id===id);async function save(e:React.FormEvent){e.preventDefault();if(!balancesReady||saving||!id)return;setSaving(true);const {data,error}=await supabase.rpc('record_payment',{p_customer_id:id,p_payment_date:new Date().toISOString().slice(0,10),p_amount:Number(amount),p_payment_method:method,p_notes:note||null});setSaving(false);if(error){alert(error.message);return}setDone(data);setAmount('');setNote('');void load()}if(done)return <div className='card mx-auto max-w-lg p-8 text-center'><WalletCards className='mx-auto text-brand-blue' size={40}/><h1 className='mt-4 text-2xl font-black'>Payment recorded</h1><p className='mt-2 text-slate-500'>{done.payment_no}</p><div className='mt-6 rounded-2xl bg-slate-50 p-5'><p className='text-xs text-slate-400'>Received</p><p className='mt-1 text-3xl font-black'>₹ {Number(done.paid).toLocaleString('en-IN')}</p><p className='mt-4 text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p></div><div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:note||null}}/></div><button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button></div>;return <><Head title='Add Payment' sub='Record a payment and update the running due instantly.'/><form onSubmit={save} className='card mt-6 max-w-xl space-y-5 p-6'><div><label className='label'>Customer</label><select className='field' value={id} onChange={e=>setId(e.target.value)} required><option value=''>Select customer ({customers.length} available)</option>{customers.map(x=><option key={x.id} value={x.id}>{x.name} — Due ₹ {Number(x.current_due).toLocaleString('en-IN')}</option>)}</select>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}</div>{c&&<div className='rounded-2xl bg-orange-50 p-4'><span className='text-sm text-slate-500'>Current due</span><b className='float-right text-lg text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div>}<div><label className='label'>Payment amount</label><input className='field' type='number' min='1' max={c?.current_due||undefined} value={amount} onChange={e=>setAmount(e.target.value)} required/>{c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_due||0)-Number(amount||0),0).toLocaleString('en-IN')}</b></div></div>}</div><div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div><div><label className='label'>Note</label><textarea className='field min-h-24' value={note} onChange={e=>setNote(e.target.value)}/></div><button className='btn btn-primary w-full' disabled={saving||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button></form></>}
+function NewBill({onDone}:{onDone:()=>void}){const [customers,setCustomers]=useState<Customer[]>([]);const [customerId,setCustomerId]=useState('');const [items,setItems]=useState<Item[]>([{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}]);const [paid,setPaid]=useState('0');const [method,setMethod]=useState('Cash');const [saving,setSaving]=useState(false);const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);useEffect(()=>{let active=true;(async()=>{const result=await fetchCustomerRecords();if(!active)return;setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)})();return()=>{active=false}},[]);const c=customers.find(x=>x.id===customerId);const subtotal=useMemo(()=>items.reduce((s,i)=>s+(Number(i.amount)||0),0),[items]);const total=Math.max(Number(c?.current_due||0)+subtotal-(Number(paid)||0),0);function upd(i:number,k:keyof Item,v:string){setItems(a=>a.map((x,n)=>n===i?{...x,[k]:v}:x))}async function save(){if(!customerId||subtotal<=0||!balancesReady||saving)return;setSaving(true);const {data,error}=await supabase.rpc('create_bill',{p_customer_id:customerId,p_bill_date:new Date().toISOString().slice(0,10),p_items:items.map(x=>({...x,amount:Number(x.amount)})),p_paid_now:Number(paid)||0,p_payment_method:method,p_notes:null});setSaving(false);if(error){alert(error.message);return}setDone(data);onDone()}if(done)return <div className='card mx-auto max-w-xl p-8 text-center'><div className='mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600'>✓</div><h1 className='mt-5 text-2xl font-black'>Bill saved</h1><p className='mt-2 text-slate-500'>Bill <b>{done.bill_no}</b> created successfully.</p><div className='mt-6 grid grid-cols-2 gap-3 text-left'><div className='rounded-xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Today's Bill</p><p className='mt-1 text-xl font-black'>₹ {subtotal.toLocaleString('en-IN')}</p></div><div className='rounded-xl bg-orange-50 p-4'><p className='text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-xl font-black text-brand-orange'>₹ {Number(done.total_due).toLocaleString('en-IN')}</p></div></div><div className='mt-6'><BillPdfActions data={{billNo:done.bill_no,billDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,previousDue:Number(done.previous_due||0),subtotal:Number(done.subtotal||subtotal),paidNow:Number(done.paid_now||paid||0),totalDue:Number(done.total_due||0),items:items.map(x=>({...x,amount:Number(x.amount||0)}))}}/></div><button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Create another bill</button></div>;return <><Head title='New Bill' sub='Add passengers and ticket amounts. Previous due is automatic.'/><div className='mt-6 grid gap-6 xl:grid-cols-[1fr_360px]'><div className='space-y-5'><div className='card p-5'><label className='label'>Customer</label><CustomerPicker customers={customers} value={customerId} onChange={setCustomerId} placeholder='Select customer'/>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}{!customers.length&&!customerError&&<p className='mt-2 text-xs text-slate-500'>No customers available yet. Add a customer first.</p>}{c&&<div className='mt-3 rounded-xl bg-orange-50 p-4 text-sm'><span className='text-slate-500'>Previous due</span><strong className='float-right text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</strong></div>}</div><div className='card p-5'><div className='mb-4 flex items-center justify-between'><h2 className='font-black'>Booking details</h2><button onClick={()=>setItems(a=>[...a,{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}])} className='btn btn-secondary'><Plus size={16}/> Add passenger</button></div><div className='space-y-4'>{items.map((it,i)=><div key={i} className='rounded-2xl border border-slate-200 p-4'><div className='mb-4 flex items-center justify-between'><span className='text-xs font-black uppercase tracking-widest text-brand-blue'>Passenger {i+1}</span>{items.length>1&&<button onClick={()=>setItems(a=>a.filter((_,n)=>n!==i))} className='text-slate-400'><Trash2 size={16}/></button>}</div><div className='grid gap-3 md:grid-cols-2'><div><label className='label'>Passenger name</label><input className='field' value={it.passenger_name} onChange={e=>upd(i,'passenger_name',e.target.value)} placeholder='Asim'/></div><div><label className='label'>Flight date</label><input className='field' type='date' value={it.travel_date} onChange={e=>upd(i,'travel_date',e.target.value)}/></div><div><label className='label'>Service</label><select className='field' value={it.service_type} onChange={e=>upd(i,'service_type',e.target.value)}><option>Flight Ticket</option><option>Bus Ticket</option><option>Hotel Booking</option><option>Visa Processing</option><option>Tour Package</option><option>Other</option></select></div><div><label className='label'>Amount</label><input className='field' type='number' min='0' value={it.amount} onChange={e=>upd(i,'amount',e.target.value)} placeholder='5000'/></div><div className='md:col-span-2'><label className='label'>Details</label><input className='field' value={it.details} onChange={e=>upd(i,'details',e.target.value)} placeholder='Airline / route / PNR'/></div></div></div>)}</div></div></div><aside className='card h-fit p-5 xl:sticky xl:top-24'><h2 className='font-black'>Bill summary</h2><div className='mt-5 space-y-4 text-sm'><div className='flex justify-between'><span className='text-slate-500'>Previous Due</span><b>₹ {Number(c?.current_due||0).toLocaleString('en-IN')}</b></div><div className='flex justify-between'><span className='text-slate-500'>Today's Bill</span><b>₹ {subtotal.toLocaleString('en-IN')}</b></div><div><label className='label'>Payment now</label><input className='field' type='number' min='0' value={paid} onChange={e=>setPaid(e.target.value)}/></div>{Number(paid)>0&&<div><label className='label'>Payment method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>}<div className='rounded-2xl bg-brand-ink p-4 text-white'><div className='text-xs text-slate-300'>Remaining Due</div><div className='mt-1 text-3xl font-black'>₹ {total.toLocaleString('en-IN')}</div></div><button disabled={saving||!customerId||subtotal<=0||!balancesReady} onClick={save} className='btn btn-primary w-full'><Save size={17}/>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Bill'}</button></div></aside></div></>}
+
+function Payments(){const [customers,setCustomers]=useState<Customer[]>([]);const [id,setId]=useState('');const [amount,setAmount]=useState('');const [method,setMethod]=useState('Cash');const [note,setNote]=useState('');const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);const [saving,setSaving]=useState(false);async function load(){const result=await fetchCustomerRecords();setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)}useEffect(()=>{void load()},[]);const c=customers.find(x=>x.id===id);async function save(e:React.FormEvent){e.preventDefault();if(!balancesReady||saving||!id)return;setSaving(true);const {data,error}=await supabase.rpc('record_payment',{p_customer_id:id,p_payment_date:new Date().toISOString().slice(0,10),p_amount:Number(amount),p_payment_method:method,p_notes:note||null});setSaving(false);if(error){alert(error.message);return}setDone(data);setAmount('');setNote('');void load()}if(done)return <div className='card mx-auto max-w-lg p-8 text-center'><WalletCards className='mx-auto text-brand-blue' size={40}/><h1 className='mt-4 text-2xl font-black'>Payment recorded</h1><p className='mt-2 text-slate-500'>{done.payment_no}</p><div className='mt-6 rounded-2xl bg-slate-50 p-5'><p className='text-xs text-slate-400'>Received</p><p className='mt-1 text-3xl font-black'>₹ {Number(done.paid).toLocaleString('en-IN')}</p><p className='mt-4 text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p></div><div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:note||null}}/></div><button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button></div>;return <><Head title='Add Payment' sub='Record a payment and update the running due instantly.'/><form onSubmit={save} className='card mt-6 max-w-xl space-y-5 p-6'><div><label className='label'>Customer</label><CustomerPicker customers={customers} value={id} onChange={setId} placeholder='Select customer for payment'/>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}</div>{c&&<div className='rounded-2xl bg-orange-50 p-4'><span className='text-sm text-slate-500'>Current due</span><b className='float-right text-lg text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div>}<div><label className='label'>Payment amount</label><input className='field' type='number' min='1' max={c?.current_due||undefined} value={amount} onChange={e=>setAmount(e.target.value)} required/>{c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_due||0)-Number(amount||0),0).toLocaleString('en-IN')}</b></div></div>}</div><div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div><div><label className='label'>Note</label><textarea className='field min-h-24' value={note} onChange={e=>setNote(e.target.value)}/></div><button className='btn btn-primary w-full' disabled={saving||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button></form></>}
 
 function Bills(){
  const [rows,setRows]=useState<any[]>([]);
