@@ -348,7 +348,7 @@ function drawBillTableHeader(doc: jsPDF, y: number) {
   doc.text('TRAVEL DATE',65,y+7);
   doc.text('SERVICE / DETAILS',97,y+7);
   doc.text('AMOUNT (₹)',190,y+7,{align:'right'});
-  return y+15;
+  return y+16;
 }
 
 export async function buildBillPdf(data: BillPdfData) {
@@ -362,7 +362,7 @@ export async function buildBillPdf(data: BillPdfData) {
   pill(doc,73,94,54,'Bill Date',dateText(data.billDate));
   pill(doc,131,94,64,'Document','Booking Bill');
 
-  let y=112;
+  let y=117;
   y=drawBillTableHeader(doc,y);
 
   doc.setFontSize(8);
@@ -371,11 +371,11 @@ export async function buildBillPdf(data: BillPdfData) {
     const detail=[item.service_type||'Travel Service',item.details].filter(Boolean).join('  ·  ');
     const lines=doc.splitTextToSize(detail,66);
     const passengerLines=doc.splitTextToSize(item.passenger_name||'Passenger',32);
-    const rowH=Math.max(12,Math.max(lines.length,passengerLines.length)*3.6+6);
+    const rowH=Math.max(10.5,Math.max(lines.length,passengerLines.length)*3.2+4.5);
     if(y+rowH>222){
       doc.addPage();
       header(doc,logo,'Booking Bill',brand);
-      y=57;
+      y=58;
       y=drawBillTableHeader(doc,y);
     }
     const rowFill = itemIndex % 2 === 0 ? [249,251,253] : [244,248,252];
@@ -403,13 +403,13 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setFont('helvetica','bold');
     doc.setFontSize(7.2);
     doc.text(money(item.amount),190,y+1,{align:'right'});
-    y+=rowH+1.5;
+    y+=rowH+1.2;
     itemIndex += 1;
   }
 
   // Put the financial summary on a fresh page when a long bill would
   // otherwise collide with the footer or the summary card.
-  if(y>198){
+  if(y>210){
     doc.addPage();
     header(doc,logo,'Booking Bill',brand);
     y=58;
