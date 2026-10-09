@@ -555,7 +555,7 @@ function Payments(){
    <p className='mt-4 text-xs text-slate-400'>Remaining Due</p>
    <p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p>
   </div>
-  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:done.description||null}}/></div>
+  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:done.description||null}}/></div>
   <button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button>
  </div>;
  return <>
