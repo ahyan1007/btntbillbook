@@ -510,52 +510,165 @@ function Bills(){
  const [q,setQ]=useState('');
  const [page,setPage]=useState(1);
  const [total,setTotal]=useState(0);
+ const [loadError,setLoadError]=useState<string|null>(null);
  const SIZE=20;
+ const QUERY_PAGE=500;
+ const BILL_FIELDS='id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address,is_archived)';
 
  async function load(nextPage=page,query=q){
   setLoading(true);
-  const start=(nextPage-1)*SIZE;
-  let base:any[]=[];
+  setLoadError(null);
+  const startAt=(nextPage-1)*SIZE;
+  let selectedBills:any[]=[];
   let count=0;
-  if(query.trim()){
-   const term=query.trim();
-   const [bn,cn]=await Promise.all([
-    supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address)').ilike('bill_no','%'+term+'%').order('created_at',{ascending:false}).limit(100),
-    supabase.from('customers').select('id').ilike('name','%'+term+'%').limit(100)
-   ]);
-   if(bn.error||cn.error){alert(bn.error?.message||cn.error?.message||'Search failed.');setRows([]);setTotal(0);setLoading(false);return}
-   let cb:any[]=[];
-   const ids=(cn.data||[]).map((x:any)=>x.id);
-   if(ids.length){
-    const z=await supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address)').in('customer_id',ids).order('created_at',{ascending:false}).limit(100);
-    if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
-    cb=z.data||[];
+
+  try {
+   if(query.trim()){
+    const term=query.trim();
+    const matchingBills=new Map<string,any>();
+
+    // Search the full bill-number result set, not just the first 100 bills.
+    for(let offset=0;;offset+=QUERY_PAGE){
+     const result=await supabase.from('bills')
+      .select(BILL_FIELDS)
+      .ilike('bill_no','%'+term+'%')
+      .order('created_at',{ascending:false})
+      .range(offset,offset+QUERY_PAGE-1);
+     if(result.error) throw new Error(result.error.message);
+     const chunk=result.data||[];
+     chunk.forEach((bill:any)=>matchingBills.set(bill.id,bill));
+     if(chunk.length<QUERY_PAGE) break;
+    }
+
+    // Find all matching active and archived customer records, in pages.
+    const customerIds:string[]=[];
+    for(let offset=0;;offset+=QUERY_PAGE){
+     const result=await supabase.from('customers')
+      .select('id')
+      .ilike('name','%'+term+'%')
+      .range(offset,offset+QUERY_PAGE-1);
+     if(result.error) throw new Error(result.error.message);
+     const chunk=result.data||[];
+     customerIds.push(...chunk.map((customer:any)=>customer.id));
+     if(chunk.length<QUERY_PAGE) break;
+    }
+
+    // Query bills by batches of customer IDs to avoid PostgREST query-size limits.
+    for(let idStart=0;idStart<customerIds.length;idStart+=100){
+     const ids=customerIds.slice(idStart,idStart+100);
+     for(let offset=0;;offset+=QUERY_PAGE){
+      const result=await supabase.from('bills')
+       .select(BILL_FIELDS)
+       .in('customer_id',ids)
+       .order('created_at',{ascending:false})
+       .range(offset,offset+QUERY_PAGE-1);
+      if(result.error) throw new Error(result.error.message);
+      const chunk=result.data||[];
+      chunk.forEach((bill:any)=>matchingBills.set(bill.id,bill));
+      if(chunk.length<QUERY_PAGE) break;
+     }
+    }
+
+    const all=Array.from(matchingBills.values()).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+    count=all.length;
+    selectedBills=all.slice(startAt,startAt+SIZE);
+   } else {
+    const result=await supabase.from('bills')
+     .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address,is_archived)',{count:'exact'})
+     .order('created_at',{ascending:false})
+     .range(startAt,startAt+SIZE-1);
+    if(result.error) throw new Error(result.error.message);
+    selectedBills=result.data||[];
+    count=result.count||0;
    }
-   const map=new Map<string,any>();
-   [...(bn.data||[]),...cb].forEach((x:any)=>map.set(x.id,x));
-   const all=Array.from(map.values()).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
-   count=all.length;
-   base=all.slice(start,start+SIZE);
-  }else{
-   const z=await supabase.from('bills').select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customers(name,phone,address)',{count:'exact'}).order('created_at',{ascending:false}).range(start,start+SIZE-1);
-   if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
-   base=z.data||[];count=z.count||0;
+
+   const billIds=selectedBills.map((bill:any)=>bill.id);
+   let items:any[]=[];
+   if(billIds.length){
+    const result=await supabase.from('bill_items')
+     .select('bill_id,passenger_name,travel_date,service_type,details,amount')
+     .in('bill_id',billIds)
+     .order('created_at',{ascending:true});
+    if(result.error) throw new Error(result.error.message);
+    items=result.data||[];
+   }
+   const itemsByBill=new Map<string,any[]>();
+   items.forEach((item:any)=>{
+    const current=itemsByBill.get(item.bill_id)||[];
+    current.push(item);
+    itemsByBill.set(item.bill_id,current);
+   });
+   setRows(selectedBills.map((bill:any)=>({...bill,items:itemsByBill.get(bill.id)||[]})));
+   setTotal(count);
+   setPage(nextPage);
+  } catch(error){
+   const message=error instanceof Error?error.message:'Could not load bills.';
+   setLoadError(message);
+   setRows([]);
+   setTotal(0);
+  } finally {
+   setLoading(false);
   }
-  const ids=base.map((x:any)=>x.id);
-  let items:any[]=[];
-  if(ids.length){
-   const z=await supabase.from('bill_items').select('bill_id,passenger_name,travel_date,service_type,details,amount').in('bill_id',ids).order('created_at',{ascending:true});
-   if(z.error){alert(z.error.message);setRows([]);setTotal(0);setLoading(false);return}
-   items=z.data||[];
-  }
-  const map=new Map<string,any[]>();
-  items.forEach((x:any)=>{const a=map.get(x.bill_id)||[];a.push(x);map.set(x.bill_id,a)});
-  setRows(base.map((x:any)=>({...x,items:map.get(x.id)||[]})));
-  setTotal(count);setLoading(false);
  }
 
  useEffect(()=>{void load(1,'')},[]);
  const pages=Math.max(1,Math.ceil(total/SIZE));
 
- return <><Head title='Bills' sub='Every booking bill stays in one place.'/><div className='card mt-6 p-4'><form onSubmit={e=>{e.preventDefault();setPage(1);void load(1,q)}} className='flex flex-col gap-3 sm:flex-row'><input className='field flex-1' placeholder='Search bill number or customer name...' value={q} onChange={e=>setQ(e.target.value)}/><div className='flex gap-2'><button className='btn btn-primary'>Search</button>{q&&<button type='button' className='btn btn-secondary' onClick={()=>{setQ('');setPage(1);void load(1,'')}}>Clear</button>}</div></form></div><div className='card mt-4 overflow-hidden'>{loading?<div className='p-10 text-center text-sm text-slate-400'>Loading bills...</div>:<div className='divide-y divide-slate-100'>{rows.map((r,index)=>{const customer=r.customers||{};const pdfData={billNo:r.bill_no,billDate:r.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,previousDue:Number(r.previous_due||0),subtotal:Number(r.subtotal||0),paidNow:Number(r.paid_now||0),totalDue:Number(r.total_due||0),items:(r.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};return <div key={r.id} className='flex flex-col gap-4 p-4 sm:p-5 md:flex-row md:items-center md:justify-between'><div className='min-w-0 flex-1'><div className='flex flex-wrap items-center gap-2'><p className='font-bold'>{customer.name||'Customer'}</p>{!q&&page===1&&index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest</span>}</div><p className='mt-1 text-xs text-slate-400'>{r.bill_no} · {new Date(r.bill_date).toLocaleDateString('en-GB')}</p></div><div className='flex flex-col items-stretch gap-3 md:items-end'><div className='grid grid-cols-3 gap-4 text-right text-sm'><div><p className='text-xs text-slate-400'>Bill</p><b>₹ {Number(r.subtotal).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Paid</p><b className='text-emerald-600'>₹ {Number(r.paid_now).toLocaleString('en-IN')}</b></div><div><p className='text-xs text-slate-400'>Due</p><b className='text-brand-orange'>₹ {Number(r.total_due).toLocaleString('en-IN')}</b></div></div><BillHistoryPdfActions data={pdfData}/></div></div>})}{!rows.length&&<div className='p-10 text-center text-sm text-slate-400'>{q?'No matching bills found.':'No bills yet.'}</div>}</div>}</div>{total>0&&<div className='mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row'><p className='text-xs text-slate-400'>Page {page} of {pages} · {total} bills</p><div className='flex w-full gap-2 sm:w-auto'><button type='button' disabled={page<=1||loading} onClick={()=>{const n=page-1;setPage(n);void load(n,q)}} className='btn btn-secondary flex-1 sm:flex-none'>Previous</button><button type='button' disabled={page>=pages||loading} onClick={()=>{const n=page+1;setPage(n);void load(n,q)}} className='btn btn-secondary flex-1 sm:flex-none'>Next</button></div></div>}</>;
+ return <>
+  <Head title='Bills' sub='Browse saved booking bills. Customers only appear here after a bill has been recorded.'/>
+  <div className='card mt-6 p-4 sm:p-5'>
+   <form onSubmit={event=>{event.preventDefault();void load(1,q)}} className='flex flex-col gap-3 sm:flex-row'>
+    <div className='relative min-w-0 flex-1'>
+     <Search size={18} className='pointer-events-none absolute left-3 top-3.5 text-slate-400'/>
+     <input className='field pl-10' aria-label='Search bills by bill number or customer name' placeholder='Search bill number or customer name…' value={q} onChange={event=>setQ(event.target.value)}/>
+    </div>
+    <div className='flex flex-col gap-2 sm:flex-row'>
+     <button type='submit' className='btn btn-primary' disabled={loading}><Search size={16}/>{loading?'Searching…':'Search bills'}</button>
+     {q&&<button type='button' className='btn btn-secondary' disabled={loading} onClick={()=>{setQ('');void load(1,'')}}>Clear</button>}
+    </div>
+   </form>
+   <p className='mt-3 text-xs leading-5 text-slate-500'>Search checks bill numbers and all matching customer names, including archived customers’ historical bills. To select a customer for a new transaction, use New Bill or Payments.</p>
+  </div>
+  {loadError&&<div role='alert' className='mt-4 break-words rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800'>Bills could not be loaded: {loadError}</div>}
+  <div className='card mt-4 overflow-hidden'>
+   {loading?<div className='p-10 text-center text-sm text-slate-500'><span className='mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-blue'/><p className='mt-3'>Loading bills…</p></div>
+   :<div className='divide-y divide-slate-100'>
+    {rows.map((bill,index)=>{
+     const customer=bill.customers||{};
+     const pdfData={billNo:bill.bill_no,billDate:bill.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,previousDue:Number(bill.previous_due||0),subtotal:Number(bill.subtotal||0),paidNow:Number(bill.paid_now||0),totalDue:Number(bill.total_due||0),items:(bill.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};
+     return <div key={bill.id} className='flex min-w-0 flex-col gap-4 p-4 transition-colors hover:bg-slate-50/70 sm:p-5 md:flex-row md:items-center md:justify-between'>
+      <div className='min-w-0 flex-1'>
+       <div className='flex flex-wrap items-center gap-2'>
+        <p className='break-words font-bold text-slate-900'>{customer.name||'Customer record unavailable'}</p>
+        {customer.is_archived&&<span className='inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-700'><Archive size={11}/> Archived customer</span>}
+        {!q&&page===1&&index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest bill</span>}
+       </div>
+       <p className='mt-1 break-words text-xs text-slate-400'>{bill.bill_no} · {new Date(bill.bill_date).toLocaleDateString('en-GB')}</p>
+       {customer.is_archived&&<p className='mt-1 text-xs leading-5 text-amber-700'>Historical bill retained for accounting. This customer is not available for new bills or payments.</p>}
+      </div>
+      <div className='flex min-w-0 flex-col gap-3 md:items-end'>
+       <div className='grid grid-cols-3 gap-3 text-right text-sm sm:gap-5'>
+        <div><p className='text-xs text-slate-400'>Bill</p><b className='break-words'>₹ {Number(bill.subtotal).toLocaleString('en-IN')}</b></div>
+        <div><p className='text-xs text-slate-400'>Paid</p><b className='break-words text-emerald-600'>₹ {Number(bill.paid_now).toLocaleString('en-IN')}</b></div>
+        <div><p className='text-xs text-slate-400'>Due</p><b className='break-words text-brand-orange'>₹ {Number(bill.total_due).toLocaleString('en-IN')}</b></div>
+       </div>
+       <div className='w-full md:w-auto'><BillHistoryPdfActions data={pdfData}/></div>
+      </div>
+     </div>;
+    })}
+    {!rows.length&&<div className='p-10 text-center'>
+      <div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400'><ReceiptText size={22}/></div>
+      <p className='mt-3 font-bold text-slate-800'>{q?'No matching bills found':'No bills recorded yet'}</p>
+      <p className='mt-1 text-sm leading-6 text-slate-500'>{q?'Try the full customer name or bill number. If that customer has not had a bill recorded, they will not appear on this page.':'Create a bill from New Bill; it will appear here automatically.'}</p>
+     </div>}
+   </div>}
+  </div>
+  {total>0&&<div className='mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row'>
+   <p className='text-xs text-slate-500'>Page {page} of {pages} · {total} bills</p>
+   <div className='flex w-full gap-2 sm:w-auto'>
+    <button type='button' disabled={page<=1||loading} onClick={()=>void load(page-1,q)} className='btn btn-secondary flex-1 sm:flex-none'>Previous</button>
+    <button type='button' disabled={page>=pages||loading} onClick={()=>void load(page+1,q)} className='btn btn-secondary flex-1 sm:flex-none'>Next</button>
+   </div>
+  </div>}
+ </>;
 }
