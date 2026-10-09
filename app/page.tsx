@@ -89,15 +89,22 @@ export default function Home(){
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [authMsg,setAuthMsg]=useState('');
  useEffect(()=>{
   let active=true;
-  supabase.auth.getSession().then(({data})=>{if(active){setSession(data.session);setLoading(false)}});
-  const {data:l}=supabase.auth.onAuthStateChange((_e,s)=>{if(active)setSession(s)});
+  supabase.auth.getSession().then(({data})=>{if(active){setSession(current=>current?.user?.id&&current.user.id===data.session?.user?.id?current:data.session);setLoading(false)}});
+  const {data:l}=supabase.auth.onAuthStateChange((_event,nextSession)=>{
+    if(!active)return;
+    // Supabase refreshes its token when a tab regains activity. Keep the
+    // same user session object so this does not re-run the admin gate or
+    // replace the active screen with a loading view.
+    setSession(current=>current?.user?.id&&current.user.id===nextSession?.user?.id?current:nextSession);
+  });
   return()=>{active=false;l.subscription.unsubscribe()};
  },[]);
+ const sessionUserId=session?.user?.id;
  useEffect(()=>{
-  if(!session){setAuthorized(false);setAuthorizing(false);return}
+  if(!sessionUserId){setAuthorized(false);setAuthorizing(false);return}
   let active=true;
   setAuthorizing(true);
-  supabase.from('admin_users').select('role').eq('user_id',session.user.id).maybeSingle().then(async({data,error})=>{
+  supabase.from('admin_users').select('role').eq('user_id',sessionUserId).maybeSingle().then(async({data,error})=>{
     if(!active)return;
     const ok=!error&&data?.role==='admin';
     setAuthorized(!!ok);
@@ -108,7 +115,7 @@ export default function Home(){
     }
   });
   return()=>{active=false};
- },[session]);
+ },[sessionUserId]);
  if(loading||authorizing)return <div className='grid min-h-screen place-items-center p-6 text-sm text-slate-500'>{authorizing?'Checking admin access...':'Loading...'}</div>;
  if(!session||!authorized)return <Auth email={email} setEmail={setEmail} password={password} setPassword={setPassword} msg={authMsg} setMsg={setAuthMsg}/>;
  return <Shell view={view} setView={setView} mobile={mobile} setMobile={setMobile}><Content view={view}/></Shell>;
