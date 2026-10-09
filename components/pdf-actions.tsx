@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileDown, MessageCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -11,7 +11,31 @@ import {
   type PaymentPdfData,
 } from '@/lib/pdf';
 
+
 type BusyAction = 'download' | 'web' | 'direct' | null;
+
+// Re-prepare generated PDFs when the user returns to this browser tab.
+// Business branding/template may have been changed in another tab meanwhile.
+function useTabResumeVersion() {
+  const [version, setVersion] = useState(0);
+  const lastRefresh = useRef(0);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastRefresh.current < 300) return;
+      lastRefresh.current = now;
+      setVersion((current) => current + 1);
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+  return version;
+}
 
 async function sendPdfToWhatsApp(
   doc: any,
@@ -43,6 +67,7 @@ async function sendPdfToWhatsApp(
 }
 
 export function BillPdfActions({ data }: { data: BillPdfData }) {
+  const tabResumeVersion = useTabResumeVersion();
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
@@ -69,7 +94,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     return () => {
       cancelled = true;
     };
-  }, [dataKey]);
+  }, [dataKey, tabResumeVersion]);
 
   const fileName = data.billNo + '.pdf';
   const message =
@@ -156,6 +181,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
 }
 
 export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
+  const tabResumeVersion = useTabResumeVersion();
   const [busyAction, setBusyAction] = useState<'download' | 'web' | null>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
@@ -182,7 +208,7 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
     return () => {
       cancelled = true;
     };
-  }, [dataKey]);
+  }, [dataKey, tabResumeVersion]);
 
   const fileName = data.billNo + '.pdf';
   const message =
@@ -241,6 +267,7 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
 }
 
 export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
+  const tabResumeVersion = useTabResumeVersion();
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
@@ -267,7 +294,7 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
     return () => {
       cancelled = true;
     };
-  }, [dataKey]);
+  }, [dataKey, tabResumeVersion]);
 
   const fileName = data.paymentNo + '.pdf';
   const message =

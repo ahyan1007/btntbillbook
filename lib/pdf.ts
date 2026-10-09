@@ -361,31 +361,9 @@ export async function buildBillPdf(data: BillPdfData) {
   const rightEdge = 195;
 
   function drawBrandBanner() {
-    doc.setFillColor(...primary);
-    doc.rect(0,0,210,45,'F');
-    doc.setFillColor(...accent);
-    doc.rect(0,0,210,2,'F');
-
-    if (logo && brand.show_logo) doc.addImage(logo,'JPEG',12,8,40,16.7);
-    doc.setTextColor(255,255,255);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(11.5);
-    const name = doc.splitTextToSize(brand.company_name || DEFAULT_BRANDING.company_name, 91);
-    doc.text(name.slice(0,1),59,18);
-    doc.setTextColor(218,230,240);
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(7);
-    const tagline = doc.splitTextToSize(brand.tagline || 'Your Trusted Travel Partner', 91);
-    doc.text(tagline.slice(0,1),59,27);
-
-    doc.setFillColor(...accent);
-    doc.roundedRect(153,10,43,23,4,4,'F');
-    doc.setTextColor(255,255,255);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(8.5);
-    doc.text('BOOKING BILL',174.5,19.5,{align:'center'});
-    doc.setFontSize(5.6);
-    doc.text('TRAVEL SERVICES',174.5,26,{align:'center'});
+    // Use the same template-aware renderer as payment receipts so the
+    // Dashboard's Travel / Classic / Modern / Minimal setting applies to bills too.
+    header(doc, logo, 'Booking Bill', brand);
   }
 
   function drawCustomerAndBillInfo() {
