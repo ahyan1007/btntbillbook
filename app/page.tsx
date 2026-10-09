@@ -578,7 +578,7 @@ function Bills(){
  const [openingError,setOpeningError]=useState<string|null>(null);
  const SIZE=20;
  const QUERY_PAGE=500;
- const BILL_FIELDS='id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address,is_archived)';
+ const BILL_FIELDS='id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,notes,created_at,customer_id,customers(name,phone,address,is_archived)';
 
  async function loadOpeningBalanceAccounts(){
   setOpeningLoading(true);
@@ -673,7 +673,7 @@ function Bills(){
     selectedBills=all.slice(startAt,startAt+SIZE);
    } else {
     const result=await supabase.from('bills')
-     .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,created_at,customer_id,customers(name,phone,address,is_archived)',{count:'exact'})
+     .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,notes,created_at,customer_id,customers(name,phone,address,is_archived)',{count:'exact'})
      .order('created_at',{ascending:false})
      .range(startAt,startAt+SIZE-1);
     if(result.error) throw new Error(result.error.message);
@@ -767,7 +767,7 @@ function Bills(){
    :<div className='divide-y divide-slate-100'>
     {rows.map((bill,index)=>{
      const customer=bill.customers||{};
-     const pdfData={billNo:bill.bill_no,billDate:bill.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,previousDue:Number(bill.previous_due||0),subtotal:Number(bill.subtotal||0),paidNow:Number(bill.paid_now||0),totalDue:Number(bill.total_due||0),items:(bill.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};
+     const pdfData={billNo:bill.bill_no,billDate:bill.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,description:bill.notes||null,previousDue:Number(bill.previous_due||0),subtotal:Number(bill.subtotal||0),paidNow:Number(bill.paid_now||0),totalDue:Number(bill.total_due||0),items:(bill.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};
      return <div key={bill.id} className='flex min-w-0 flex-col gap-4 p-4 transition-colors hover:bg-slate-50/70 sm:p-5 md:flex-row md:items-center md:justify-between'>
       <div className='min-w-0 flex-1'>
        <div className='flex flex-wrap items-center gap-2'>
@@ -775,7 +775,7 @@ function Bills(){
         {customer.is_archived&&<span className='inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-700'><Archive size={11}/> Archived customer</span>}
         {!q&&page===1&&index===0&&<span className='rounded-full bg-brand-orange/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-brand-orange'>Latest bill</span>}
        </div>
-       <p className='mt-1 break-words text-xs text-slate-400'>{bill.bill_no} · {new Date(bill.bill_date).toLocaleDateString('en-GB')}</p>
+       <p className='mt-1 break-words text-xs text-slate-400'>{bill.bill_no} · {new Date(bill.bill_date).toLocaleDateString('en-GB')}</p>{bill.notes&&<p className='mt-2 whitespace-pre-wrap break-words text-sm text-slate-600'><span className='font-bold text-slate-700'>Description: </span>{bill.notes}</p>}
        {customer.is_archived&&<p className='mt-1 text-xs leading-5 text-amber-700'>Historical bill retained for accounting. This customer is not available for new bills or payments.</p>}
       </div>
       <div className='flex min-w-0 flex-col gap-3 md:items-end'>
