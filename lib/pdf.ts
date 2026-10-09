@@ -348,7 +348,10 @@ function drawBillTableHeader(doc: jsPDF, y: number) {
   doc.text('SERVICE / DETAILS',68,y+6.9);
   doc.text('TRAVEL DATE',130,y+6.9);
   doc.text('AMOUNT',190,y+6.9,{align:'right'});
- export async function buildBillPdf(data: BillPdfData) {
+  return y+10.5;
+}
+
+export async function buildBillPdf(data: BillPdfData) {
   const doc = new jsPDF({unit:'mm',format:'a4',compress:true,putOnlyUsedFonts:true,precision:2});
   const brand = await businessBranding();
   const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
@@ -654,10 +657,6 @@ function drawBillTableHeader(doc: jsPDF, y: number) {
   return doc;
 }
 
-
-
-  return doc;
-}
 
 
 export async function buildPaymentPdf(data: PaymentPdfData) {
