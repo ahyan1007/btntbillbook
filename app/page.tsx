@@ -60,6 +60,15 @@ async function fetchCustomerRecords(): Promise<CustomerLoadResult> {
     });
   }
 
+  const missingBalances = base.filter((customer) => !balanceById.has(customer.id));
+  if (missingBalances.length) {
+    return {
+      rows: base.map((customer) => ({ ...customer, current_due: Number.NaN })) as Customer[],
+      error: 'Loaded all customer names, but the balance view returned no balance for ' + missingBalances.length + ' customer(s). No bill or payment will be saved until balances can be verified.',
+      balancesReady: false,
+    };
+  }
+
   return {
     rows: base.map((customer) => ({
       ...customer,
