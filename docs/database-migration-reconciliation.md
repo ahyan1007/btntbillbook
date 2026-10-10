@@ -56,22 +56,38 @@ The CLI behavior was checked in the v2.115.0 source: [migration repair command](
 
 The accounting foundation migration creates the ledger, allocation, and idempotency tables; installs posting/validation triggers; backfills existing financial records into the ledger; and creates a signed-balance view. The follow-on migration adds advance-payment and allocation RPC behavior. Both migrations have been tested on the separate isolated project `btntbillbook-accounting-test`; neither has been applied to Production.
 
-On 2026-10-10, after test-project RLS was enabled, these read-only and transactional checks passed:
+On 2026-10-10, after test-project RLS was enabled, these checks passed:
 
-- Read-only ledger reconciliation checked five customers, ten bills, six payments, eighteen ledger entries, and nine allocations with zero mismatch between legacy due and signed-ledger-derived due.
-- Under a simulated authenticated admin JWT context, the RLS policies exposed the admin's owned rows (five customers, ten bills, eleven bill items, six payments). A different admin context saw zero customer, bill, bill-item, and payment rows. The `authenticated` role has no SELECT table privilege on `financial_operation_keys`.
-- A transactional smoke test confirmed authenticated admin execution of `create_bill` and `record_payment`, idempotent retries returned matching responses without duplicate bills/payments, and each source produced exactly one ledger posting. The test transaction was rolled back.
+- Initial read-only ledger reconciliation checked five customers, ten bills, six payments, eighteen ledger entries, and nine allocations with zero mismatch between legacy due and signed-ledger-derived due.
+- Under a simulated authenticated admin JWT context, RLS exposed the admin's own rows (five customers, ten bills, eleven bill items, six payments). A different admin context saw zero customer, bill, bill-item, and payment rows.
+- A non-admin authenticated context could not read those business rows and attempts to call `create_bill` or `record_payment` were rejected with `Admin access required`.
+- An anonymous role saw zero customers, bills, and payments. Anonymous EXECUTE privilege for both accounting RPCs was false. The `authenticated` role can execute these RPCs by design, and both functions contain explicit admin checks.
+- A transactional smoke test confirmed authenticated admin execution of `create_bill` and `record_payment`; idempotent retries returned matching responses without duplicate bills/payments, and each source produced exactly one ledger posting. The test transaction was rolled back.
 - A transactional FIFO/advance test passed: a 150 payment against a 100 bill allocated 100 to the first bill and left 50 advance; a 30 next bill consumed 30 of advance and carried 20; a 25 third bill consumed the final 20 and left 5 due. It ran in a transaction that included `ROLLBACK`.
 
 ### Test-project RLS policy status
 
-RLS is now enabled on all five legacy core tables in `btntbillbook-accounting-test`: `admin_users`, `customers`, `bills`, `bill_items`, and `payments`. Policies restrict access to the authenticated admin's own account and bill ownership. Do not disable RLS. The test-project changes were applied from Supabase SQL Editor, not yet captured in a dedicated repo migration.
+RLS is now enabled on all five legacy core tables in `btntbillbook-accounting-test`: `admin_users`, `customers`, `bills`, `bill_items`, and `payments`. Policies restrict access to the authenticated admin's own account and bill ownership. Do not disable RLS. The test-project changes were applied from Supabase SQL Editor and have not yet been captured in a dedicated, repeatable repo migration/setup script.
 
-Post-test verification showed `all_core_tables_rls_enabled = true`, no leftover `__RLS_FIFO_ROLLBACK_TEST__` customer, and unchanged totals of ten bills, six payments, eighteen ledger entries, and nine allocations. However, the customers count was four on this final direct read, while an earlier exact admin-context check returned five. The four currently listed synthetic customers account for all ten bills, six payments, and eighteen ledger entries. A narrow Postgres-log search did not show an explicit customer DELETE statement, but that does not establish the cause of this customer-count discrepancy. **Pause further test-data mutations until the test project’s customer count discrepancy is explained.** No Production tables were modified.
+Post-test verification showed `all_core_tables_rls_enabled = true`, no leftover `__RLS_FIFO_ROLLBACK_TEST__` customer, and stable totals of ten bills, six payments, eighteen ledger entries, and nine allocations. However, the current direct query lists four synthetic customers while an earlier exact authenticated-admin query listed five. The four current customers account for all ten bills, six payments, and eighteen ledger entries. No current customer-delete trigger or application function that deletes from `public.customers` was found. A narrow query of available Postgres/PostgREST logs did not identify an explicit customer DELETE. `pg_stat_user_tables` shows `n_tup_del = 1` and `n_live_tup = 4`, but database statistics were reset on 2026-10-02 and provide no row identity or delete timestamp. **The cause of the fifth customer's disappearance remains unproven.** Do not invent or restore a row based only on the earlier count. Pause further test-data mutations until the discrepancy is explained or an explicit decision is made to reset/reseed this synthetic test dataset. No Production tables were modified by these checks.
 
-The latest Supabase security advisor result no longer reports the five core tables as RLS-disabled. Remaining findings:
+### Remaining security findings
+
+The latest Supabase security advisor no longer reports the five core tables as RLS-disabled. Findings were reviewed as follows:
+
 - `financial_operation_keys` has RLS enabled and no policy, which is intentional for direct client isolation; the authenticated role has no SELECT privilege.
-- `create_bill` and `record_payment` are SECURITY DEFINER RPCs executable by `authenticated`. This is intended for the admin workflow; the code contains explicit authentication/admin checks and customer ownership checks, but should remain part of security review.
-- Leaked-password protection remains disabled in Supabase Auth and is a separate dashboard setting worth enabling.
+- `create_bill` and `record_payment` are SECURITY DEFINER RPCs executable by `authenticated`. Their source pins `search_path`, explicitly checks `auth.uid()` and `private.is_admin()`, validates customer ownership, and tests above confirm non-admin calls are rejected. Keep them under review and do not expose EXECUTE to `anon` or `PUBLIC`.
+- Anonymous role has SELECT grants on some public tables, but RLS returned zero rows for customers, bills, and payments in the smoke test. RLS must remain enabled and the policies must not be weakened.
+- Leaked-password protection is disabled in Supabase Auth on both test and Production; this is a separate dashboard setting and should be enabled before production release.
+- Production's `customers_delete_own` and `customers_admin_delete` policies overlap. Review whether to keep one policy as a separate, explicit change; this was not altered by migration repair.
 
-Keep the current UI on `customer_balances` until the advance/payment-allocation RPC and UI phase is completed and reviewed. Do not apply either accounting migration to Production yet.
+## Release readiness decision
+
+**Not production-ready yet.** The accounting scenarios tested successfully in transactional test runs, and the PR documentation build check succeeded, but release is blocked by:
+1. unexplained test-project customer count discrepancy;
+2. test-project RLS setup not yet represented by a repeatable repo migration/setup script;
+3. leaked-password protection still disabled;
+4. explicit review/decision on duplicate Production customer DELETE policies; and
+5. end-to-end browser/UI checks for bill creation, payment entry, PDF history, ledger display, and advance carry-forward against the intended app branch.
+
+Do not apply either accounting migration to Production or switch the UI to `customer_ledger_balances` until the above gates are resolved and the change is explicitly reviewed.
