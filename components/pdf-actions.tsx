@@ -71,7 +71,6 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
-  const [prepareError, setPrepareError] = useState<string | null>(null);
 
   const dataKey = JSON.stringify(data);
 
@@ -80,56 +79,18 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
 
     setPreparing(true);
     setPreparedDoc(null);
-    setPrepareError(null);
 
-    async function prepare() {
-      try {
-        if (!data.customerId || !data.createdAt) {
-          throw new Error('This bill is missing its historical balance reference.');
-        }
-
-        // Reconstruct the signed customer balance immediately before this bill was created.
-        // The same bill's payment entry shares its transaction timestamp, so strict < excludes
-        // current-bill postings and preserves the pre-bill advance rather than today's balance.
-        const priorEntries: Array<{ debit: number | string | null; credit: number | string | null }> = [];
-        const pageSize = 500;
-        for (let offset = 0; ; offset += pageSize) {
-          const { data: chunk, error } = await supabase
-            .from('customer_ledger_entries')
-            .select('id,debit,credit,created_at')
-            .eq('customer_id', data.customerId)
-            .lt('created_at', data.createdAt)
-            .order('created_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(offset, offset + pageSize - 1);
-          if (error) throw new Error('Could not load the customer ledger snapshot: ' + error.message);
-          priorEntries.push(...(chunk || []));
-          if (!chunk || chunk.length < pageSize) break;
-        }
-
-        const startingBalance = priorEntries.reduce(
-          (balance: number, entry) => balance + Number(entry.debit || 0) - Number(entry.credit || 0),
-          0,
-        );
-        const subtotal = Number(data.subtotal || 0);
-        const paidNow = Number(data.paidNow || 0);
-        const advanceApplied = Math.min(Math.max(-startingBalance, 0), subtotal);
-        const advanceAmount = Math.max(-(startingBalance + subtotal - paidNow), 0);
-
-        const doc = await buildBillPdf({ ...data, advanceApplied, advanceAmount });
+    buildBillPdf(data)
+      .then((doc) => {
         if (!cancelled) {
           setPreparedDoc(doc);
           setPreparing(false);
         }
-      } catch (error) {
-        if (!cancelled) {
-          setPrepareError(error instanceof Error ? error.message : 'Could not prepare accurate bill PDF.');
-          setPreparing(false);
-        }
-      }
-    }
+      })
+      .catch(() => {
+        if (!cancelled) setPreparing(false);
+      });
 
-    void prepare();
     return () => {
       cancelled = true;
     };
@@ -226,6 +187,7 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
   const [busyAction, setBusyAction] = useState<'download' | 'web' | null>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
 
   const dataKey = JSON.stringify(data);
 
@@ -234,18 +196,56 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
 
     setPreparing(true);
     setPreparedDoc(null);
+    setPrepareError(null);
 
-    buildBillPdf(data)
-      .then((doc) => {
+    async function prepare() {
+      try {
+        if (!data.customerId || !data.createdAt) {
+          throw new Error('This bill is missing its historical balance reference.');
+        }
+
+        // Reconstruct the signed customer balance immediately before this bill was created.
+        // The same bill's payment entry shares its transaction timestamp, so strict < excludes
+        // current-bill postings and preserves the pre-bill advance rather than today's balance.
+        const priorEntries: Array<{ debit: number | string | null; credit: number | string | null }> = [];
+        const pageSize = 500;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data: chunk, error } = await supabase
+            .from('customer_ledger_entries')
+            .select('id,debit,credit,created_at')
+            .eq('customer_id', data.customerId)
+            .lt('created_at', data.createdAt)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+          if (error) throw new Error('Could not load the customer ledger snapshot: ' + error.message);
+          priorEntries.push(...(chunk || []));
+          if (!chunk || chunk.length < pageSize) break;
+        }
+
+        const startingBalance = priorEntries.reduce(
+          (balance: number, entry) => balance + Number(entry.debit || 0) - Number(entry.credit || 0),
+          0,
+        );
+        const subtotal = Number(data.subtotal || 0);
+        const paidNow = Number(data.paidNow || 0);
+        const advanceApplied = Math.min(Math.max(-startingBalance, 0), subtotal);
+        const advanceAmount = Math.max(-(startingBalance + subtotal - paidNow), 0);
+
+        const doc = await buildBillPdf({ ...data, advanceApplied, advanceAmount });
         if (!cancelled) {
           setPreparedDoc(doc);
           setPreparing(false);
         }
-      })
-      .catch(() => {
-        if (!cancelled) setPreparing(false);
-      });
+      } catch (error) {
+        if (!cancelled) {
+          setPrepareError(error instanceof Error ? error.message : 'Could not prepare accurate bill PDF.');
+          setPreparing(false);
+        }
+      }
+    }
 
+    void prepare();
     return () => {
       cancelled = true;
     };
