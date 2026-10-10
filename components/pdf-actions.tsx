@@ -106,6 +106,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     data.subtotal.toLocaleString('en-IN') +
     '\nTotal Due: INR ' +
     data.totalDue.toLocaleString('en-IN') +
+    (Number(data.advanceApplied||0)>0 ? '\nAdvance Applied: INR ' + Number(data.advanceApplied).toLocaleString('en-IN') : '') +
     (Number(data.advanceAmount||0)>0 ? '\nCustomer Advance: INR ' + Number(data.advanceAmount).toLocaleString('en-IN') : '') +
     (data.description ? '\nDescription: ' + data.description : '') +
     '\nPlease find the bill attached.';
