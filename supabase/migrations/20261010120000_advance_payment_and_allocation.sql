@@ -19,6 +19,7 @@ DECLARE
   v_available numeric;
   v_allocated_from_credit numeric;
   v_allocated_to_bill numeric;
+  v_existing_pair numeric;
   v_bill_remaining numeric;
   v_to_allocate numeric;
   v_payment record;
@@ -93,19 +94,35 @@ BEGIN
 
         v_to_allocate := LEAST(v_available, v_bill_remaining);
         IF v_to_allocate > 0 THEN
-          INSERT INTO public.invoice_allocations (
-            user_id, customer_id, bill_id, credit_ledger_entry_id,
-            amount, allocation_date, description
-          )
-          VALUES (
-            p_user_id, p_customer_id, v_bill.id, v_payment.ledger_entry_id,
-            v_to_allocate, v_payment.payment_date,
-            'Automatic FIFO allocation'
-          )
-          ON CONFLICT (credit_ledger_entry_id, bill_id) DO NOTHING;
+          SELECT COALESCE(SUM(a.amount), 0)
+            INTO v_existing_pair
+          FROM public.invoice_allocations a
+          WHERE a.credit_ledger_entry_id = v_payment.ledger_entry_id
+            AND a.bill_id = v_bill.id;
 
-          -- Count only what was actually inserted. A conflict may indicate an existing
-          -- allocation on this source/invoice pair, which is included on the next pass.
+          IF v_existing_pair > 0 THEN
+            -- Complete an existing partial allocation before moving to newer bills.
+            UPDATE public.invoice_allocations
+            SET amount = amount + v_to_allocate,
+                allocation_date = LEAST(allocation_date, v_payment.payment_date),
+                description = 'Automatic FIFO allocation'
+            WHERE credit_ledger_entry_id = v_payment.ledger_entry_id
+              AND bill_id = v_bill.id;
+          ELSE
+            INSERT INTO public.invoice_allocations (
+              user_id, customer_id, bill_id, credit_ledger_entry_id,
+              amount, allocation_date, description
+            )
+            VALUES (
+              p_user_id, p_customer_id, v_bill.id, v_payment.ledger_entry_id,
+              v_to_allocate, v_payment.payment_date,
+              'Automatic FIFO allocation'
+            )
+            ON CONFLICT (credit_ledger_entry_id, bill_id) DO NOTHING;
+          END IF;
+
+          -- A customer row lock serializes supported financial RPCs. Decrement only
+          -- when the insert/update took effect, preserving retry safety.
           IF FOUND THEN
             v_available := v_available - v_to_allocate;
           END IF;
