@@ -15,6 +15,9 @@ export type BillPdfData = {
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
+  // Present only for bill-history PDFs so advance can be reconstructed at issuance time.
+  customerId?: string;
+  createdAt?: string;
   description?: string | null;
   previousDue: number;
   subtotal: number;
