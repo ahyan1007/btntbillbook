@@ -818,7 +818,7 @@ function Bills(){
    :<div className='divide-y divide-slate-100'>
     {rows.map((bill,index)=>{
      const customer=bill.customers||{};
-     const pdfData={billNo:bill.bill_no,billDate:bill.bill_date,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,description:bill.notes||null,previousDue:Number(bill.previous_due||0),subtotal:Number(bill.subtotal||0),paidNow:Number(bill.paid_now||0),totalDue:Number(bill.total_due||0),items:(bill.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};
+     const pdfData={billNo:bill.bill_no,billDate:bill.bill_date,customerId:bill.customer_id,createdAt:bill.created_at,customerName:customer.name||'Customer',customerPhone:customer.phone||null,customerAddress:customer.address||null,description:bill.notes||null,previousDue:Number(bill.previous_due||0),subtotal:Number(bill.subtotal||0),paidNow:Number(bill.paid_now||0),totalDue:Number(bill.total_due||0),items:(bill.items||[]).map((item:any)=>({passenger_name:item.passenger_name||'Passenger',travel_date:item.travel_date||null,service_type:item.service_type||null,details:item.details||null,amount:Number(item.amount||0)}))};
      return <div key={bill.id} className='flex min-w-0 flex-col gap-4 p-4 transition-colors hover:bg-slate-50/70 sm:p-5 md:flex-row md:items-center md:justify-between'>
       <div className='min-w-0 flex-1'>
        <div className='flex flex-wrap items-center gap-2'>
