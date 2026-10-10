@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, Smartphone } from 'lucide-react';
+import { Download } from 'lucide-react';
 
 export function PwaInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -12,10 +12,7 @@ export function PwaInstall() {
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true;
 
-    if (standalone) {
-      setInstalled(true);
-      return;
-    }
+    if (standalone) setInstalled(true);
 
     const onBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -30,13 +27,32 @@ export function PwaInstall() {
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
     window.addEventListener('appinstalled', onInstalled);
 
+    let hadController = false;
+    let reloading = false;
+    const onControllerChange = () => {
+      // Reload only when replacing an existing controller. The very first
+      // service-worker installation should not cause an unnecessary reload.
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    };
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      hadController = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+      navigator.serviceWorker
+        .register('/sw.js', { updateViaCache: 'none' })
+        .then(registration => registration.update().catch(() => {}))
+        .catch(() => {});
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
       window.removeEventListener('appinstalled', onInstalled);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      }
     };
   }, []);
 
