@@ -18,6 +18,27 @@ function createIdempotencyKey() {
   return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
 }
 
+function currentLocalDateTimeValue() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function formatIndiaDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).replace(/\b(am|pm)\b/i, match => match.toUpperCase()) + ' IST';
+}
+
 async function fetchCustomerRecords(includeArchived = false): Promise<CustomerLoadResult> {
   const base: any[] = [];
   const pageSize = 500;
@@ -575,6 +596,7 @@ function Payments(){
  const [id,setId]=useState('');
  const [amount,setAmount]=useState('');
  const [paymentDate,setPaymentDate]=useState(()=>{const today=new Date();return today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0')});
+ const [receiptGeneratedAt,setReceiptGeneratedAt]=useState(currentLocalDateTimeValue);
  const [method,setMethod]=useState('Cash');
  const [description,setDescription]=useState('');
  const [done,setDone]=useState<any>(null);
@@ -591,6 +613,11 @@ function Payments(){
  async function save(e:React.FormEvent){
   e.preventDefault();
   if(!balancesReady||saving||!id||!requestKey)return;
+  const selectedReceiptGeneratedAt = new Date(receiptGeneratedAt);
+  if(!receiptGeneratedAt||Number.isNaN(selectedReceiptGeneratedAt.getTime())){
+   alert('Please select the receipt generated date and time.');
+   return;
+  }
   setSaving(true);
   const {data,error}=await supabase.rpc('record_payment',{
    p_customer_id:id,
@@ -600,10 +627,19 @@ function Payments(){
    p_notes:description.trim()||null,
    p_idempotency_key:requestKey
   });
+  if(error){setSaving(false);alert(error.message);return}
+  const receiptGeneratedAtIso=selectedReceiptGeneratedAt.toISOString();
+  let receiptGeneratedAtSaved=false;
+  if(data?.payment_id){
+   const metadataResult=await supabase.rpc('set_payment_receipt_generated_at',{
+    p_payment_id:data.payment_id,
+    p_receipt_generated_at:receiptGeneratedAtIso
+   });
+   receiptGeneratedAtSaved=!metadataResult.error;
+  }
   setSaving(false);
-  if(error){alert(error.message);return}
-  // Keep the description with the success receipt before clearing the input.
-  setDone({...data,description:description.trim(),paymentDate,method});
+  // Keep the selected receipt timestamp with the success receipt before clearing inputs.
+  setDone({...data,description:description.trim(),paymentDate,method,receiptGeneratedAt:receiptGeneratedAtIso,receiptGeneratedAtSaved});
   setRequestKey(createIdempotencyKey());
   setAmount('');
   setDescription('');
@@ -614,6 +650,8 @@ function Payments(){
   <h1 className='mt-4 text-2xl font-black'>Payment recorded</h1>
   <p className='mt-2 text-slate-500'>{done.payment_no}</p>
   <p className='mt-1 text-sm text-slate-500'>Payment date: {new Date((done.paymentDate||paymentDate)+'T00:00:00').toLocaleDateString('en-GB')}</p>
+  <p className='mt-1 text-sm text-slate-500'>Receipt generated: {formatIndiaDateTime(done.receiptGeneratedAt)}</p>
+  {done.receiptGeneratedAtSaved===false&&<p role='status' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs leading-5 text-amber-900'>The payment was saved, and this receipt will show the selected date/time, but that date/time could not be saved for later reuse.</p>}
   {done.description&&<div className='mt-4 rounded-xl bg-sky-50 p-4 text-left text-sm text-sky-900'><p className='text-[10px] font-black uppercase tracking-wider text-sky-700'>Description</p><p className='mt-1 whitespace-pre-wrap'>{done.description}</p></div>}
   <div className='mt-6 rounded-2xl bg-slate-50 p-5'>
    <p className='text-xs text-slate-400'>Received</p>
@@ -622,8 +660,8 @@ function Payments(){
    <p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p>
    {Number(done.advance_amount||0)>0&&<><p className='mt-4 text-xs text-emerald-700'>Customer Advance</p><p className='mt-1 text-2xl font-black text-emerald-700'>₹ {Number(done.advance_amount).toLocaleString('en-IN')}</p></>}
   </div>
-  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:done.paymentDate||paymentDate,customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method:done.method||method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),advanceAmount:Number(done.advance_amount||0),note:done.description||null}}/></div>
-  <button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button>
+  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:done.paymentDate||paymentDate,receiptGeneratedAt:done.receiptGeneratedAt,customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method:done.method||method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),advanceAmount:Number(done.advance_amount||0),note:done.description||null}}/></div>
+  <button onClick={()=>{setDone(null);setReceiptGeneratedAt(currentLocalDateTimeValue())}} className='btn btn-primary mt-4'>Record another payment</button>
  </div>;
  return <>
   <Head title='Add Payment' sub='Record a payment and update the running due instantly.'/>
@@ -634,6 +672,7 @@ function Payments(){
     {c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_balance??c.current_due)-Number(amount||0),0).toLocaleString('en-IN')}</b></div>{Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0)>0&&<div className='mt-3 flex justify-between rounded-xl bg-emerald-50 p-3'><span className='text-sm font-bold text-emerald-800'>Advance after payment</span><b className='text-lg text-emerald-800'>₹ {Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0).toLocaleString('en-IN')}</b></div>}</div>}
    </div>
    <div><label className='label' htmlFor='payment-date'>Payment date</label><input id='payment-date' className='field' type='date' value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} required/><p className='mt-1 text-xs text-slate-400'>Choose the date the payment was actually received. This date is saved in the ledger and receipt.</p></div>
+   <div><label className='label' htmlFor='receipt-generated-at'>Receipt generated date &amp; time</label><input id='receipt-generated-at' className='field' type='datetime-local' value={receiptGeneratedAt} onChange={e=>setReceiptGeneratedAt(e.target.value)} required/><p className='mt-1 text-xs text-slate-400'>Choose the date and time to print below the receipt number. Separate from Payment Date.</p></div>
    <div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>
    <div><label className='label'>Description</label><textarea className='field min-h-24' value={description} maxLength={250} onChange={e=>setDescription(e.target.value)} placeholder='Payment details, UPI / bank reference, or reason for payment…'/><p className='mt-1 text-xs text-slate-400'>Optional · saved with the payment and shown on the receipt and statement.</p></div>
    <button className='btn btn-primary w-full' disabled={saving||!requestKey||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button>
