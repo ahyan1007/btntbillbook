@@ -15,7 +15,7 @@ export type BillPdfData = {
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
-  // Present only for bill-history PDFs so advance can be reconstructed at issuance time.
+  // Persisted creation timestamp for displaying the exact bill generation date and time.
   customerId?: string;
   createdAt?: string;
   description?: string | null;
@@ -103,7 +103,7 @@ function dateTimeText(value?: string) {
     second: '2-digit',
     hour12: true,
   });
-  return formatted.replace(/\\b(am|pm)\\b/i, (match) => match.toUpperCase()) + ' IST';
+  return formatted.replace(' am', ' AM').replace(' pm', ' PM') + ' IST';
 }
 
 async function businessBranding(): Promise<PdfBranding> {
