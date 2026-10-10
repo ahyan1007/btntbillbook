@@ -89,8 +89,42 @@ BEGIN
     RAISE EXCEPTION 'Signed ledger balances do not reconcile with existing customer balances';
   END IF;
 
-  -- No invoice may receive more allocation than its total; no credit source may
-  -- be allocated above the amount available in that source.
+  -- The legacy UI's balance view must remain reconciled during the transition.
+  IF EXISTS (
+    SELECT 1
+    FROM public.customer_ledger_balances lb
+    JOIN public.customer_balances cb ON cb.id = lb.id
+    WHERE cb.current_due IS DISTINCT FROM GREATEST(lb.current_balance, 0)::numeric(12,2)
+  ) THEN
+    RAISE EXCEPTION 'Legacy customer_balances due does not reconcile with the new signed ledger';
+  END IF;
+
+  -- No bill/payment posting should exist without the source transaction it represents.
+  IF EXISTS (
+    SELECT 1
+    FROM public.customer_ledger_entries e
+    LEFT JOIN public.bills b ON b.id = e.source_id
+    WHERE e.source_type = 'bill'
+      AND (b.id IS NULL OR e.user_id IS DISTINCT FROM b.user_id
+        OR e.customer_id IS DISTINCT FROM b.customer_id
+        OR e.debit IS DISTINCT FROM b.subtotal OR e.credit <> 0)
+  ) THEN
+    RAISE EXCEPTION 'Orphaned or incorrect bill ledger posting found';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.customer_ledger_entries e
+    LEFT JOIN public.payments p ON p.id = e.source_id
+    WHERE e.source_type = 'payment'
+      AND (p.id IS NULL OR e.user_id IS DISTINCT FROM p.user_id
+        OR e.customer_id IS DISTINCT FROM p.customer_id
+        OR e.debit <> 0 OR e.credit IS DISTINCT FROM p.amount)
+  ) THEN
+    RAISE EXCEPTION 'Orphaned or incorrect payment ledger posting found';
+  END IF;
+
+  -- The allocation totals must remain within source credit and bill subtotal limits.
   IF EXISTS (
     SELECT 1
     FROM public.invoice_allocations a
