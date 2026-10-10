@@ -571,9 +571,10 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.text('All amounts in INR',195,headingY,{align:'right'});
 
     const panelY = startY+30;
+    const panelHeight = Number(data.advanceAmount||0) > 0 ? 58 : 49;
     doc.setFillColor(255,255,255);
     doc.setDrawColor(218,228,238);
-    doc.roundedRect(15,panelY,99,49,3.5,3.5,'FD');
+    doc.roundedRect(15,panelY,99,panelHeight,3.5,3.5,'FD');
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.2);
@@ -600,7 +601,7 @@ export async function buildBillPdf(data: BillPdfData) {
 
     const dueX = 119;
     doc.setFillColor(...primary);
-    doc.roundedRect(dueX,panelY,76,49,3.5,3.5,'F');
+    doc.roundedRect(dueX,panelY,76,panelHeight,3.5,3.5,'F');
     doc.setTextColor(222,234,243);
     doc.setFont('helvetica','bold');
     doc.setFontSize(7.2);
@@ -620,11 +621,12 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setFont('helvetica','bold');
     doc.setFontSize(5.7);
     doc.text(hasAdvance ? 'ADVANCE CARRIED FORWARD' : Number(data.totalDue||0) <= 0 ? 'PAID IN FULL' : 'BALANCE DUE',dueX+35,panelY+43,{align:'center'});
-    return panelY+49;
+    return panelY+panelHeight;
   }
 
   let summaryStart = y+3;
-  if (summaryStart+96 > 278) {
+  const summaryRequiredHeight = Number(data.advanceAmount||0) > 0 ? 105 : 96;
+  if (summaryStart+summaryRequiredHeight > 278) {
     doc.addPage();
     drawBrandBanner();
     doc.setTextColor(...primary);
