@@ -195,7 +195,7 @@ $backfill$;
 
 DROP FUNCTION IF EXISTS public.create_bill(uuid, date, jsonb, numeric, text, text);
 
-CREATE FUNCTION public.create_bill(
+CREATE OR REPLACE FUNCTION public.create_bill(
   p_customer_id uuid,
   p_bill_date date,
   p_items jsonb,
@@ -212,6 +212,7 @@ AS $function$
 DECLARE
   v_user uuid := auth.uid();
   v_signed_balance numeric(12,2);
+  v_starting_balance numeric(12,2);
   v_previous_due numeric(12,2);
   v_subtotal numeric(12,2);
   v_total_due numeric(12,2);
@@ -308,6 +309,7 @@ BEGIN
   FROM public.customer_ledger_entries e
   WHERE e.user_id = v_user AND e.customer_id = p_customer_id;
 
+  v_starting_balance := v_signed_balance;
   v_previous_due := GREATEST(v_signed_balance, 0);
   v_total_due := GREATEST(v_signed_balance + v_subtotal - p_paid_now, 0);
   v_advance := GREATEST(-(v_signed_balance + v_subtotal - p_paid_now), 0);
@@ -361,6 +363,7 @@ BEGIN
     'paid_now', p_paid_now,
     'total_due', GREATEST(v_signed_balance, 0),
     'current_balance', v_signed_balance,
+    'advance_applied', LEAST(GREATEST(-v_starting_balance, 0), v_subtotal),
     'advance_amount', GREATEST(-v_signed_balance, 0)
   );
 
@@ -374,7 +377,7 @@ $function$;
 
 DROP FUNCTION IF EXISTS public.record_payment(uuid, date, numeric, text, text);
 
-CREATE FUNCTION public.record_payment(
+CREATE OR REPLACE FUNCTION public.record_payment(
   p_customer_id uuid,
   p_payment_date date,
   p_amount numeric,
