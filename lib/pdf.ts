@@ -21,6 +21,7 @@ export type BillPdfData = {
   paidNow: number;
   totalDue: number;
   advanceAmount?: number;
+  advanceApplied?: number;
   items: BillPdfItem[];
 };
 
@@ -571,7 +572,7 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.text('All amounts in INR',195,headingY,{align:'right'});
 
     const panelY = startY+30;
-    const panelHeight = Number(data.advanceAmount||0) > 0 ? 58 : 49;
+    const panelHeight = Number(data.advanceAmount||0) > 0 || Number(data.advanceApplied||0) > 0 ? 58 : 49;
     doc.setFillColor(255,255,255);
     doc.setDrawColor(218,228,238);
     doc.roundedRect(15,panelY,99,panelHeight,3.5,3.5,'FD');
@@ -585,6 +586,9 @@ export async function buildBillPdf(data: BillPdfData) {
       ["Today's bill",Number(data.subtotal||0),INK,'+ '],
       ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'− '],
     ];
+    if (Number(data.advanceApplied||0) > 0) {
+      summaryRows.push(['Advance applied to this bill',Number(data.advanceApplied||0),[16,145,82] as const,'− ']);
+    }
     if (Number(data.advanceAmount||0) > 0) {
       summaryRows.push(['Advance carried forward',Number(data.advanceAmount||0),[16,145,82] as const,'']);
     }
@@ -625,7 +629,7 @@ export async function buildBillPdf(data: BillPdfData) {
   }
 
   let summaryStart = y+3;
-  const summaryRequiredHeight = Number(data.advanceAmount||0) > 0 ? 105 : 96;
+  const summaryRequiredHeight = Number(data.advanceAmount||0) > 0 || Number(data.advanceApplied||0) > 0 ? 105 : 96;
   if (summaryStart+summaryRequiredHeight > 278) {
     doc.addPage();
     drawBrandBanner();
