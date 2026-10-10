@@ -323,6 +323,7 @@ LEFT JOIN public.customer_ledger_entries e
  AND e.user_id = c.user_id
 GROUP BY c.id, c.user_id, c.name, c.phone, c.address;
 
+REVOKE ALL ON TABLE public.customer_ledger_balances FROM anon, authenticated;
 GRANT SELECT ON TABLE public.customer_ledger_balances TO authenticated;
 
 COMMENT ON TABLE public.customer_ledger_entries IS
