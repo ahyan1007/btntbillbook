@@ -6,7 +6,7 @@ Branch: `feature/accounting-core-foundation`
 
 This feature branch adds a normalized customer ledger and invoice allocations while leaving the current customer, bills, bill-item and payment tables in place. It includes a migration for advance handling and idempotent bill/payment RPCs, plus app forms, customer ledger, dashboard and PDF changes that display signed balances and advances.
 
-**Neither migration has been applied to production.** SQL execution and financial test fixtures were confined to the separate `btntbillbook-accounting-test` project. See `docs/accounting-core-test-results-2026-10-10.md`.
+**Production database rollout completed on 2026-10-10.** The two migrations were applied as `20261010180107_accounting_core_foundation` and `20261010180130_advance_payment_and_allocation` after the isolated tests and production preflight reconciliation. Post-migration checks found zero signed-balance mismatches, zero legacy-due mismatches, zero duplicate source postings, and no allocations exceeding bill/credit limits. The separate `btntbillbook-accounting-test` project remains the source of transaction-level regression tests.
 
 ## Accounting convention
 
@@ -48,17 +48,17 @@ Read-only `security_invoker` view exposing debit total, credit total and signed 
 
 ## Migration sequence and production gate
 
-1. Production migration history has a known discrepancy: `20261009154500_customer_archive_and_delete.sql` effects are present but its version is not recorded in the live registry. See `docs/database-migration-reconciliation.md`.
-2. Accounting foundation: `supabase/migrations/20261010100000_accounting_core_foundation.sql`.
-3. Advance/allocation and idempotent RPCs: `supabase/migrations/20261010120000_advance_payment_and_allocation.sql`.
-4. Both migrations have been exercised in the isolated test project with synthetic data; see the test report.
-5. The latest Next.js Build Check and UI regression checks must pass before considering a merge. Preview must use a schema compatible with these migrations; deploying this UI against production before its schema is migrated will cause balance/RPC calls to fail closed.
-6. Migration history must be reconciled with the Supabase CLI (do not manually edit the internal migration registry). Review the overlapping customer DELETE policies.
-7. Production schema migration and production deployment require separate explicit approval. Do not merge/deploy as part of this test step.
+1. The migration-history repair for `20261009154500_customer_archive_and_delete` is complete.
+2. Accounting foundation is recorded in Production as `20261010180107_accounting_core_foundation`; source file: `supabase/migrations/20261010180107_accounting_core_foundation.sql`.
+3. Advance/allocation RPC migration is recorded in Production as `20261010180130_advance_payment_and_allocation`; source file: `supabase/migrations/20261010180130_advance_payment_and_allocation.sql`.
+4. The isolated project passed transactional accounting regression checks; Production post-migration reconciliation also passed with zero mismatches.
+5. The Preview build passed for commit `1711da3`; subsequent changes align migration filenames/docs with the live migration registry, and a fresh Preview build is required before merge.
+6. The duplicate Production customer DELETE policies were reviewed and retained for this release because their predicates are overlapping/equivalent; cleanup is deferred to a separate change. Supabase Free-plan leaked-password protection remains unavailable and is documented as an accepted launch limitation—not represented as enabled.
+7. After the fresh Preview build is READY, merge the reviewed PR to let Vercel deploy the app code to Production. A full browser UI workflow using a separate test-configured Preview session remains a follow-up check.
 
 ## Remaining not in scope
 
-- Actual browser-session validation against a preview configured to the test project.
+- Full bill/payment/PDF UI workflow against a Preview deployment configured to the isolated test project; the available verification covered successful build and direct SQL/accounting regression tests, not a signed-in browser end-to-end session.
 - Allocation edits/reversals, refunds, credit notes and adjustment workflows.
 - Independent production security review of every RLS policy.
-- Migration-history repair command is not available through the current database connector; it remains a controlled CLI step before production rollout.
+- Vercel application code deployment follows the verified Production database migrations and successful latest Preview build.
