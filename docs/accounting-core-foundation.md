@@ -21,7 +21,7 @@ No migration has been applied to production by this change.
 
 ### `customer_ledger_entries`
 
-Append-oriented posting records for opening balance, bill, payment, refund, credit note, adjustment, and reversal. A posting has exactly one positive side (debit or credit). Source uniqueness prevents the same source bill/payment/opening balance from being backfilled twice.
+Append-oriented posting records for opening due/advance, bill, payment, refund, credit note, adjustment, and reversal. A posting has exactly one positive side (debit or credit). Source uniqueness prevents the same source bill/payment/opening balance from being backfilled twice.
 
 Existing positive customer opening balances, bills and payments are backfilled idempotently. Database triggers maintain corresponding ledger entries for subsequent customer opening-balance changes, bill inserts, and payment inserts. Existing source records are left unchanged.
 
