@@ -17,6 +17,8 @@ The Production project now reports these applied versions:
 | 20261006104623 | final_hardening_and_performance |
 | 20261006105043 | move_admin_check_to_private_schema |
 | 20261009154500 | customer_archive_and_delete |
+| 20261010180107 | accounting_core_foundation |
+| 20261010180130 | advance_payment_and_allocation |
 
 The targeted repair was run from a checked-out copy of this repository with Supabase CLI `2.115.0` using a direct Production Postgres connection URI via `--db-url`, because `supabase link --project-ref sawxcpwyehrbfmhsiqaf` returned a Management API permission error. CLI output confirmed `Repaired migration history: [20261009154500] => applied`; the subsequent `supabase migration list --db-url ...` showed `20261009154500` in both the local and remote columns. A separate connected Supabase migration-list check also confirms the eight Production versions above.
 
@@ -27,8 +29,8 @@ The targeted repair was run from a checked-out copy of this repository with Supa
 The feature branch contains:
 
 - `supabase/migrations/20261009154500_customer_archive_and_delete.sql`
-- `supabase/migrations/20261010100000_accounting_core_foundation.sql`
-- `supabase/migrations/20261010120000_advance_payment_and_allocation.sql`
+- `supabase/migrations/20261010180107_accounting_core_foundation.sql`
+- `supabase/migrations/20261010180130_advance_payment_and_allocation.sql`
 - `supabase/tests/test_project_core_rls_setup.sql` (isolated test setup only; not a production migration)
 
 Before the repair, we compared the SQL effects of `20261009154500_customer_archive_and_delete.sql` against the live schema and verified all three intended effects:
@@ -45,17 +47,18 @@ The live `customers` table also has `customers_delete_own` alongside `customers_
 
 ## Current rollout status and safety rules
 
-1. The migration history discrepancy for `20261009154500` is resolved.
-2. The CLI list showed `20261010100000` and `20261010120000` as local versions not applied remotely. **Do not run `supabase db push` against Production yet.**
-3. Do not mark the accounting migrations as applied manually. `20261010100000_accounting_core_foundation.sql` and `20261010120000_advance_payment_and_allocation.sql` contain real schema, trigger, backfill, and RPC changes and remain pending on Production.
-4. Do not fabricate or split the seven historical migration files from the current schema; their original sequence is not present in this repository.
-5. Review and test subsequent migrations against an isolated non-production database, complete the separate DELETE-policy review, and use a production change checklist before approving any accounting rollout.
+1. The migration-history discrepancy for `20261009154500` is resolved.
+2. Both accounting migrations were applied to Production and are recorded as `20261010180107` and `20261010180130`; the repository filenames now match the remote versions.
+3. Production was reconciled before and after the migrations. The post-migration checks reported 3 customers, 1 bill, 7 payments, 11 ledger entries, 2 invoice allocations, zero signed-balance/legacy-due mismatches, zero duplicate source postings, and zero allocations above bill or credit limits.
+4. The old `create_bill` and `record_payment` RPC signatures were removed and the new idempotent signatures are present. Authenticated execution is granted; anonymous execution is denied. No test bill/payment was inserted in Production.
+5. Do not fabricate or split the seven historical migration files from the current schema; their original sequence is not present in this repository.
+6. Duplicate Production customer DELETE policies were reviewed and retained for this release because their predicates overlap/equate; cleanup is deferred to a separate change. Leaked-password protection remains disabled because it is unavailable on the current Supabase Free plan; this is recorded as an accepted launch limitation.
 
 The CLI behavior was checked in the v2.115.0 source: [migration repair command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.command.ts), [migration repair handler](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.handler.ts), and [migration list command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/list/list.command.ts). Official guidance: [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations) and [CLI migration repair](https://supabase.com/docs/reference/cli/supabase-migration-repair).
 
 ## Accounting core rollout guardrails and test status
 
-The accounting foundation migration creates the ledger, allocation, and idempotency tables; installs posting/validation triggers; backfills existing financial records into the ledger; and creates a signed-balance view. The follow-on migration adds advance-payment and allocation RPC behavior. Both migrations have been tested on the separate isolated project `btntbillbook-accounting-test`; neither has been applied to Production.
+The accounting foundation migration creates the ledger, allocation, and idempotency tables; installs posting/validation triggers; backfills existing financial records into the ledger; and creates a signed-balance view. The follow-on migration adds advance-payment and allocation RPC behavior. Both migrations passed the isolated project `btntbillbook-accounting-test` regression checks and are now applied to Production under the two versions above.
 
 On 2026-10-10, after test-project RLS was enabled, these checks passed:
 
@@ -90,12 +93,13 @@ The latest Supabase security advisor no longer reports the five core tables as R
 
 ## Release readiness decision
 
-**Not production-ready yet.** The customer count discrepancy is now likely explained by a successful Data API deletion and no financial-record mismatch was found. Accounting transactional tests passed, and the documentation/build check for the prior commit succeeded, but release remains gated by:
+**Production database rollout complete; application deployment awaits the final Preview build and PR merge.** The customer-count discrepancy was likely explained by one successful Data API deletion; the remaining current dataset reconciles and no financial mismatch was found. The accounting migrations and read-only post-migration checks are complete.
 
-1. deciding whether to upgrade the currently Free Supabase organization to enable leaked-password protection or formally accept/document this plan limitation and compensating controls;
-2. an explicit review/decision on duplicate Production customer DELETE policies;
-3. verifying the new test-only RLS setup script is kept separate from deployable migrations;
-4. end-to-end browser/UI tests for bill creation, payment entry, PDF history, ledger display, and advance carry-forward on the intended app branch; and
-5. a final review of accounting migrations and their rollout order.
+Release decisions recorded for this rollout:
 
-Do not apply either accounting migration to Production or switch the UI to `customer_ledger_balances` until the above gates are resolved and the change is explicitly reviewed.
+1. Keep the Supabase Free plan; leaked-password protection remains unavailable and disabled. This is a documented limitation for this launch, not a claim that the control is enabled. Upgrade later if leaked-password checks are required.
+2. Keep both overlapping/equivalent customer DELETE policies for now; their cleanup is deferred to a separate, reviewed migration.
+3. Keep `supabase/tests/test_project_core_rls_setup.sql` test-only and out of deployable migration paths.
+4. A signed-in browser end-to-end workflow (create bill, record payment, inspect bill-history PDF, customer ledger/statement, advance carry-forward) has not been verified in this session. The isolated transactional tests and Production read-only reconciliation passed, and the Preview build previously passed. Run the browser workflow in a test-configured Preview after deployment checks.
+
+Both accounting migrations are already applied to Production; do not re-run or manually mark those specific migrations as applied. The next Production action is to merge the reviewed application PR only after the latest Preview build is READY.
