@@ -91,15 +91,24 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
         // Reconstruct the signed customer balance immediately before this bill was created.
         // The same bill's payment entry shares its transaction timestamp, so strict < excludes
         // current-bill postings and preserves the pre-bill advance rather than today's balance.
-        const { data: priorEntries, error } = await supabase
-          .from('customer_ledger_entries')
-          .select('debit,credit')
-          .eq('customer_id', data.customerId)
-          .lt('created_at', data.createdAt);
-        if (error) throw new Error('Could not load the customer ledger snapshot: ' + error.message);
+        const priorEntries: Array<{ debit: number | string | null; credit: number | string | null }> = [];
+        const pageSize = 500;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data: chunk, error } = await supabase
+            .from('customer_ledger_entries')
+            .select('id,debit,credit,created_at')
+            .eq('customer_id', data.customerId)
+            .lt('created_at', data.createdAt)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+          if (error) throw new Error('Could not load the customer ledger snapshot: ' + error.message);
+          priorEntries.push(...(chunk || []));
+          if (!chunk || chunk.length < pageSize) break;
+        }
 
-        const startingBalance = (priorEntries || []).reduce(
-          (balance: number, entry: any) => balance + Number(entry.debit || 0) - Number(entry.credit || 0),
+        const startingBalance = priorEntries.reduce(
+          (balance: number, entry) => balance + Number(entry.debit || 0) - Number(entry.credit || 0),
           0,
         );
         const subtotal = Number(data.subtotal || 0);
