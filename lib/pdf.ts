@@ -586,10 +586,10 @@ export async function buildBillPdf(data: BillPdfData) {
     const summaryRows: Array<[string,number,readonly [number,number,number],string]> = [
       ['Previous balance due',Number(data.previousDue||0),INK,''],
       ["Today's bill",Number(data.subtotal||0),INK,'+ '],
-      ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'− '],
+      ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'- '],
     ];
     if (Number(data.advanceApplied||0) > 0) {
-      summaryRows.push(['Advance applied to this bill',Number(data.advanceApplied||0),[16,145,82] as const,'− ']);
+      summaryRows.push(['Advance applied to this bill',Number(data.advanceApplied||0),[16,145,82] as const,'- ']);
     }
     if (Number(data.advanceAmount||0) > 0) {
       summaryRows.push(['Advance carried forward',Number(data.advanceAmount||0),[16,145,82] as const,'']);
@@ -809,7 +809,7 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
 
   const summary = [
     {label:'Previous due',value:money(data.previousDue),color:primary,bold:false,y:211},
-    {label:'Payment received',value:'− ' + money(data.amount),color:green,bold:false,y:222},
+    {label:'Payment received',value:'- ' + money(data.amount),color:green,bold:false,y:222},
   ];
   for (const row of summary) {
     doc.setTextColor(...MUTED);
