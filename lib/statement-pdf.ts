@@ -129,7 +129,7 @@ export async function buildPartyStatementPdf(data: PartyStatementPdfData) {
     { label: 'OPENING BALANCE', value: data.openingBalance },
     { label: 'BILLS IN PERIOD', value: data.totalBills },
     { label: 'PAYMENTS IN PERIOD', value: data.totalPayments },
-    { label: 'CLOSING BALANCE', value: data.closingBalance },
+    { label: data.closingBalance < 0 ? 'CUSTOMER ADVANCE' : data.closingBalance > 0 ? 'CLOSING BALANCE' : 'BALANCE SETTLED', value: data.closingBalance < 0 ? Math.abs(data.closingBalance) : data.closingBalance },
   ];
   const cardY = 81;
   const cardW = 44.5;
@@ -221,9 +221,9 @@ export async function buildPartyStatementPdf(data: PartyStatementPdfData) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
   doc.setTextColor(255, 255, 255);
-  doc.text('CLOSING BALANCE', 117, y + 13);
+  doc.text(data.closingBalance < 0 ? 'CUSTOMER ADVANCE' : data.closingBalance > 0 ? 'CLOSING BALANCE' : 'BALANCE SETTLED', 117, y + 13);
   doc.setFontSize(9);
-  doc.text(amount(data.closingBalance), 193, y + 13, { align: 'right' });
+  doc.text(amount(data.closingBalance < 0 ? Math.abs(data.closingBalance) : data.closingBalance), 193, y + 13, { align: 'right' });
 
   footer(doc, companyName);
   return doc;
