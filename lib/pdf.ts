@@ -89,6 +89,23 @@ function dateText(value: string) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+function dateTimeText(value?: string) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const formatted = d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  return formatted.replace(/\\b(am|pm)\\b/i, (match) => match.toUpperCase()) + ' IST';
+}
+
 async function businessBranding(): Promise<PdfBranding> {
   try {
     const { data } = await supabase.from('business_settings').select(
@@ -386,9 +403,9 @@ export async function buildBillPdf(data: BillPdfData) {
 
     doc.setFillColor(246,249,252);
     doc.setDrawColor(218,228,238);
-    doc.roundedRect(15,60,180,36,4,4,'FD');
+    doc.roundedRect(15,60,180,44,4,4,'FD');
     doc.setDrawColor(218,228,238);
-    doc.line(110,66,110,90);
+    doc.line(110,66,110,100);
 
     doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
@@ -408,17 +425,25 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.1);
-    doc.text('BILL NUMBER',118,69);
+    doc.text('BILL NUMBER',118,68);
     doc.setTextColor(...INK);
     doc.setFontSize(8.2);
-    doc.text(doc.splitTextToSize(data.billNo || '—', 69).slice(0,1),118,77.5);
+    doc.text(doc.splitTextToSize(data.billNo || '—', 69).slice(0,1),118,76.5);
     doc.setTextColor(...MUTED);
     doc.setFontSize(6.1);
-    doc.text('BILL DATE',118,85.5);
+    doc.text('BILL DATE',118,83.5);
     doc.setTextColor(...INK);
     doc.setFont('helvetica','bold');
-    doc.setFontSize(7.5);
-    doc.text(dateText(data.billDate),118,92);
+    doc.setFontSize(7.2);
+    doc.text(dateText(data.billDate),118,90);
+    doc.setTextColor(...MUTED);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(5.8);
+    doc.text('BILL GENERATED (DATE & TIME)',118,95.5);
+    doc.setTextColor(...INK);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(6.8);
+    doc.text(dateTimeText(data.createdAt),118,101.5);
   }
 
   function drawTableHeaderAt(y: number) {
@@ -441,11 +466,11 @@ export async function buildBillPdf(data: BillPdfData) {
     drawBrandBanner();
     drawCustomerAndBillInfo();
 
-    let servicesHeadingY = 109;
+    let servicesHeadingY = 117;
     const description = (data.description || '').trim();
     if (description) {
       const lines = doc.splitTextToSize(description, 168).slice(0, 4);
-      const boxY = 100;
+      const boxY = 108;
       const boxH = 12 + lines.length * 3.5;
       doc.setFillColor(238,246,252);
       doc.setDrawColor(218,232,242);
