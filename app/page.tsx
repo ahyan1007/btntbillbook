@@ -229,10 +229,11 @@ function Dashboard(){
   Promise.all([
     supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8),
     supabase.from('customer_balances').select('current_due'),
-    supabase.from('customer_ledger_balances').select('current_balance'),
+    supabase.from('customer_ledger_balances').select('id,current_balance'),
     supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle()
   ]).then(([list,metrics,ledgerMetrics,settings])=>{
-    setRows((list.data as Customer[])||[]);
+    const signedById=new Map<string,number>((ledgerMetrics.data||[]).map((x:any)=>[x.id,Number(x.current_balance||0)]));
+    setRows(((list.data as Customer[])||[]).map((row:any)=>{const balance=signedById.get(row.id);return {...row,current_balance:balance,current_advance:balance===undefined?Number.NaN:Math.max(-balance,0)}}));
     const values=(metrics.data||[]).map((x:any)=>Number(x.current_due||0));
     setTotalDue(values.reduce((sum,n)=>sum+n,0));
     setCustomerDueCount(values.filter(n=>n>0).length);
