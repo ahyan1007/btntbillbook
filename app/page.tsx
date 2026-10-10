@@ -220,6 +220,7 @@ function Content({view}:{view:View}){const [refresh,setRefresh]=useState(0);if(v
 function Dashboard(){
  const [rows,setRows]=useState<Customer[]>([]);
  const [totalDue,setTotalDue]=useState(0);
+ const [totalAdvance,setTotalAdvance]=useState<number|null>(null);
  const [customerDueCount,setCustomerDueCount]=useState(0);
  const [uploading,setUploading]=useState(false);
  const [savingBrand,setSavingBrand]=useState(false);
@@ -228,12 +229,15 @@ function Dashboard(){
   Promise.all([
     supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8),
     supabase.from('customer_balances').select('current_due'),
+    supabase.from('customer_ledger_balances').select('current_balance'),
     supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle()
-  ]).then(([list,metrics,settings])=>{
+  ]).then(([list,metrics,ledgerMetrics,settings])=>{
     setRows((list.data as Customer[])||[]);
     const values=(metrics.data||[]).map((x:any)=>Number(x.current_due||0));
     setTotalDue(values.reduce((sum,n)=>sum+n,0));
     setCustomerDueCount(values.filter(n=>n>0).length);
+    if(ledgerMetrics.error) setTotalAdvance(null);
+    else setTotalAdvance((ledgerMetrics.data||[]).reduce((sum:number,x:any)=>sum+Math.max(-Number(x.current_balance||0),0),0));
     if(settings.data)setBrand((prev:any)=>({...prev,...settings.data}));
   });
  },[]);
@@ -289,7 +293,7 @@ function Dashboard(){
  ];
  return <>
   <div className='mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end'><div><p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-3xl font-black tracking-tight'>Bill Book Dashboard</h1><p className='mt-2 text-sm text-slate-500'>Bookings, payments and customer dues — kept simple.</p></div></div>
-  <div className='grid gap-4 md:grid-cols-3'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'₹ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<Users/>} title='Customers with Due' value={String(customerDueCount)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>
+  <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'₹ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<WalletCards/>} title='Customer Advances' value={totalAdvance===null?'—':'₹ '+totalAdvance.toLocaleString('en-IN')} accent='blue'/><Stat icon={<Users/>} title='Customers with Due' value={String(customerDueCount)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>{totalAdvance===null&&<p role='status' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900'>Customer advance totals could not be loaded. Check the accounting migration and refresh before using advance balances.</p>}
 
   <div className='card mt-6 p-4 sm:p-5'>
    <div className='mb-5'><h2 className='font-black'>PDF Template & Business Branding</h2><p className='mt-1 text-xs leading-5 text-slate-400'>Choose a ready template, then set your own logo, company name, address and contact details. These settings appear on new bills and receipts.</p></div>
@@ -483,7 +487,7 @@ function Customers() {
             <span className='min-w-0 flex-1'><span className='flex flex-wrap items-center gap-2 font-bold text-slate-900'><span className='break-words'>{r.name}</span>{r.is_archived&&<span className='rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-500'>Archived</span>}</span><span className='mt-1 block break-words text-xs text-slate-500'>{r.phone||'No mobile number'}{r.address?' · '+r.address:''}</span></span>
           </button>
           <div className='flex flex-wrap items-center justify-between gap-3 sm:justify-end'>
-            <div className='min-w-[112px] sm:text-right'><p className='text-[10px] font-black uppercase tracking-wider text-slate-400'>Current due</p><p className={'mt-1 text-base font-black '+(Number(r.current_due)>0?'text-brand-orange':'text-emerald-600')}>{balancesReady?'₹ '+Number(r.current_due).toLocaleString('en-IN'):'—'}</p></div>
+            <div className='min-w-[112px] sm:text-right'><p className='text-[10px] font-black uppercase tracking-wider text-slate-400'>Current due</p><p className={'mt-1 text-base font-black '+(Number(r.current_due)>0?'text-brand-orange':'text-emerald-600')}>{balancesReady?'₹ '+Number(r.current_due).toLocaleString('en-IN'):'—'}</p>{Number(r.current_advance)>0&&<p className='mt-1 text-xs font-bold text-emerald-700'>Advance ₹ {Number(r.current_advance).toLocaleString('en-IN')}</p>}</div>
             <div className='flex flex-1 items-center justify-end gap-2 sm:flex-none'>
               <button type='button' onClick={()=>openEdit(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-brand-blue sm:flex-none'><Save size={14}/> Edit</button>
               {r.is_archived
@@ -534,7 +538,7 @@ function CustomerPicker({customers,value,onChange,placeholder}:{customers:Custom
       <div role='listbox' className='max-h-[min(48dvh,22rem)] overflow-y-auto overscroll-contain p-1.5'>
         {filtered.map(customer=><button type='button' role='option' aria-selected={customer.id===value} key={customer.id} onClick={()=>choose(customer)} className={'flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition '+(customer.id===value?'bg-sky-50':'hover:bg-slate-50')}>
           <span className='flex min-w-0 items-center gap-2.5'><span className='grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-black uppercase text-slate-600'>{(customer.name||'C').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('')}</span><span className='min-w-0'><span className='block break-words text-sm font-bold text-slate-900'>{customer.name}</span><span className='mt-0.5 block truncate text-xs text-slate-500'>{customer.phone||'No mobile number'}</span></span></span>
-          <span className='flex shrink-0 items-center gap-2'>{Number.isFinite(Number(customer.current_due))&&<span className={'text-xs font-bold '+(Number(customer.current_due)>0?'text-brand-orange':'text-slate-400')}>₹ {Number(customer.current_due).toLocaleString('en-IN')}</span>}{customer.id===value&&<Check size={17} className='text-brand-blue'/>}</span>
+          <span className='flex shrink-0 items-center gap-2'>{Number(customer.current_advance)>0?<span className='text-xs font-bold text-emerald-700'>Advance ₹ {Number(customer.current_advance).toLocaleString('en-IN')}</span>:Number.isFinite(Number(customer.current_due))&&<span className={'text-xs font-bold '+(Number(customer.current_due)>0?'text-brand-orange':'text-slate-400')}>₹ {Number(customer.current_due).toLocaleString('en-IN')}</span>}{customer.id===value&&<Check size={17} className='text-brand-blue'/>}</span>
         </button>)}
         {!filtered.length&&<div className='px-4 py-8 text-center'><Search size={22} className='mx-auto text-slate-300'/><p className='mt-2 text-sm font-bold text-slate-700'>No matching customer</p><p className='mt-1 text-xs text-slate-500'>Try another spelling or mobile number.</p></div>}
       </div>
