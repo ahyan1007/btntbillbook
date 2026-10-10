@@ -635,7 +635,9 @@ export async function buildBillPdf(data: BillPdfData) {
 
   let summaryStart = y+3;
   const summaryRequiredHeight = Number(data.advanceAmount||0) > 0 || Number(data.advanceApplied||0) > 0 ? 105 : 96;
-  if (summaryStart+summaryRequiredHeight > 278) {
+  // Leave room for the note and footer. A one-millimetre safety margin is enough:
+  // small bills with advance fit on page 1, while long bills still continue to page 2.
+  if (summaryStart+summaryRequiredHeight > 282) {
     doc.addPage();
     drawBrandBanner();
     doc.setTextColor(...primary);
