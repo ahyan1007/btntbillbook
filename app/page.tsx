@@ -219,28 +219,58 @@ function Content({view}:{view:View}){const [refresh,setRefresh]=useState(0);if(v
 
 function Dashboard(){
  const [rows,setRows]=useState<Customer[]>([]);
- const [totalDue,setTotalDue]=useState(0);
+ const [totalDue,setTotalDue]=useState<number|null>(null);
  const [totalAdvance,setTotalAdvance]=useState<number|null>(null);
- const [customerDueCount,setCustomerDueCount]=useState(0);
+ const [customerDueCount,setCustomerDueCount]=useState<number|null>(null);
+ const [dashboardMetricsError,setDashboardMetricsError]=useState<string|null>(null);
  const [uploading,setUploading]=useState(false);
  const [savingBrand,setSavingBrand]=useState(false);
  const [brand,setBrand]=useState<any>({company_name:'Bangladesh Tours & Travels',tagline:'Your Trusted Travel Partner',address:'',phone:'',email:'',website:'',footer_text:'Professional Travel Services',pdf_template:'travel',show_logo:true,logo_url:null,primary_color:'#0f172a',accent_color:'#f7941d'});
  useEffect(()=>{
-  Promise.all([
-    supabase.from('customer_balances').select('id,name,phone,address,current_due').order('current_due',{ascending:false}).limit(8),
-    supabase.from('customer_balances').select('current_due'),
-    supabase.from('customer_ledger_balances').select('id,current_balance'),
+  let cancelled=false;
+  async function loadDashboard(){
+   const [activeCustomers,settings]=await Promise.all([
+    supabase.from('customers').select('id').eq('is_archived',false),
     supabase.from('business_settings').select('logo_url,company_name,tagline,address,phone,email,website,footer_text,pdf_template,show_logo,primary_color,accent_color').maybeSingle()
-  ]).then(([list,metrics,ledgerMetrics,settings])=>{
-    const signedById=new Map<string,number>((ledgerMetrics.data||[]).map((x:any)=>[x.id,Number(x.current_balance||0)]));
-    setRows(((list.data as Customer[])||[]).map((row:any)=>{const balance=signedById.get(row.id);return {...row,current_balance:balance,current_advance:balance===undefined?Number.NaN:Math.max(-balance,0)}}));
-    const values=(metrics.data||[]).map((x:any)=>Number(x.current_due||0));
-    setTotalDue(values.reduce((sum,n)=>sum+n,0));
-    setCustomerDueCount(values.filter(n=>n>0).length);
-    if(ledgerMetrics.error) setTotalAdvance(null);
-    else setTotalAdvance((ledgerMetrics.data||[]).reduce((sum:number,x:any)=>sum+Math.max(-Number(x.current_balance||0),0),0));
-    if(settings.data)setBrand((prev:any)=>({...prev,...settings.data}));
+   ]);
+   if(cancelled)return;
+   if(settings.data)setBrand((prev:any)=>({...prev,...settings.data}));
+   if(activeCustomers.error){
+    setDashboardMetricsError('Could not load active customers: '+activeCustomers.error.message);
+    setRows([]);setTotalDue(null);setTotalAdvance(null);setCustomerDueCount(null);
+    return;
+   }
+   const activeIds=(activeCustomers.data||[]).map((customer:any)=>customer.id);
+   if(!activeIds.length){
+    setRows([]);setTotalDue(0);setTotalAdvance(0);setCustomerDueCount(0);setDashboardMetricsError(null);
+    return;
+   }
+   const [list,metrics,ledgerMetrics]=await Promise.all([
+    supabase.from('customer_balances').select('id,name,phone,address,current_due').in('id',activeIds).order('current_due',{ascending:false}).limit(8),
+    supabase.from('customer_balances').select('id,current_due').in('id',activeIds),
+    supabase.from('customer_ledger_balances').select('id,current_balance').in('id',activeIds)
+   ]);
+   if(cancelled)return;
+   const queryError=list.error||metrics.error||ledgerMetrics.error;
+   if(queryError){
+    setDashboardMetricsError('Could not verify active customer balances: '+queryError.message);
+    setRows([]);setTotalDue(null);setTotalAdvance(null);setCustomerDueCount(null);
+    return;
+   }
+   const signedById=new Map<string,number>((ledgerMetrics.data||[]).map((x:any)=>[x.id,Number(x.current_balance||0)]));
+   setRows(((list.data as Customer[])||[]).map((row:any)=>{const balance=signedById.get(row.id);return {...row,current_balance:balance,current_advance:balance===undefined?Number.NaN:Math.max(-balance,0)}}));
+   const values=(metrics.data||[]).map((x:any)=>Number(x.current_due||0));
+   setTotalDue(values.reduce((sum,n)=>sum+n,0));
+   setCustomerDueCount(values.filter(n=>n>0).length);
+   setTotalAdvance((ledgerMetrics.data||[]).reduce((sum:number,x:any)=>sum+Math.max(-Number(x.current_balance||0),0),0));
+   setDashboardMetricsError(null);
+  }
+  void loadDashboard().catch((error:any)=>{
+   if(cancelled)return;
+   const message=error instanceof Error?error.message:'Unknown dashboard balance error';
+   setDashboardMetricsError(message);setRows([]);setTotalDue(null);setTotalAdvance(null);setCustomerDueCount(null);
   });
+  return ()=>{cancelled=true};
  },[]);
  async function uploadLogo(file:File){
   const allowed=['image/png','image/jpeg','image/webp','image/svg+xml'];
@@ -294,7 +324,7 @@ function Dashboard(){
  ];
  return <>
   <div className='mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end'><div><p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p><h1 className='mt-1 text-3xl font-black tracking-tight'>Bill Book Dashboard</h1><p className='mt-2 text-sm text-slate-500'>Bookings, payments and customer dues — kept simple.</p></div></div>
-  <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'><Stat icon={<WalletCards/>} title='Outstanding Due' value={'₹ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<WalletCards/>} title='Customer Advances' value={totalAdvance===null?'—':'₹ '+totalAdvance.toLocaleString('en-IN')} accent='blue'/><Stat icon={<Users/>} title='Customers with Due' value={String(customerDueCount)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>{totalAdvance===null&&<p role='status' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900'>Customer advance totals could not be loaded. Check the accounting migration and refresh before using advance balances.</p>}
+  <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'><Stat icon={<WalletCards/>} title='Outstanding Due' value={due===null?'—':'₹ '+due.toLocaleString('en-IN')} accent='orange'/><Stat icon={<WalletCards/>} title='Customer Advances' value={totalAdvance===null?'—':'₹ '+totalAdvance.toLocaleString('en-IN')} accent='blue'/><Stat icon={<Users/>} title='Customers with Due' value={customerDueCount===null?'—':String(customerDueCount)} accent='blue'/><Stat icon={<FilePlus2/>} title='Quick Start' value='New Bill' accent='blue'/></div>{dashboardMetricsError&&<p role='alert' className='mt-3 break-words rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900'>Dashboard balances could not be verified: {dashboardMetricsError}</p>}
 
   <div className='card mt-6 p-4 sm:p-5'>
    <div className='mb-5'><h2 className='font-black'>PDF Template & Business Branding</h2><p className='mt-1 text-xs leading-5 text-slate-400'>Choose a ready template, then set your own logo, company name, address and contact details. These settings appear on new bills and receipts.</p></div>
@@ -415,7 +445,7 @@ function Customers() {
   async function removeCustomer(customer:Customer) {
     if(deletingId) return;
     const {data:{user}} = await supabase.auth.getUser();
-    if(!user) { alert('Please sign in again before removing a customer.'); return; }
+    if(!user) { alert('Please sign in again before deleting a customer.'); return; }
     setDeletingId(customer.id);
     setNotice(null);
 
@@ -425,41 +455,33 @@ function Customers() {
     ]);
     if(billCheck.error||paymentCheck.error) {
       setDeletingId(null);
-      alert('Could not verify this customer’s history. Nothing was removed. '+(billCheck.error?.message||paymentCheck.error?.message||''));
+      alert('Could not verify this customer’s history. Nothing was deleted. '+(billCheck.error?.message||paymentCheck.error?.message||''));
       return;
     }
 
     const billCount=billCheck.count||0;
     const paymentCount=paymentCheck.count||0;
-    if(billCount>0||paymentCount>0) {
+    const approved=confirm(
+      'PERMANENTLY DELETE '+customer.name+'?\\n\\nThis will permanently remove the customer and all related records: '+billCount+' bill(s), '+paymentCount+' payment(s), bill items, allocations, ledger entries, and their balances. The customer will not remain in Archive, and their amounts will disappear from totals.\\n\\nTHIS CANNOT BE UNDONE. Continue?'
+    );
+    if(!approved) {
       setDeletingId(null);
-      if(confirm(customer.name+' has '+billCount+' bill(s) and '+paymentCount+' payment(s). To protect accounting history, archive this customer instead? Existing bills and statements will remain available, but the customer will no longer appear when creating new bills or payments.')) {
-        await setCustomerArchived(customer,true);
-      }
       return;
     }
 
-    if(!confirm('Permanently delete '+customer.name+'? This customer has no recorded bills or payments.')) {
-      setDeletingId(null);
-      return;
-    }
-    const {data,error}=await supabase.from('customers').delete()
-      .eq('id',customer.id).eq('user_id',user.id).select('id');
-    if(error) {
-      setDeletingId(null);
-      if(confirm('The database blocked permanent deletion. Archive this customer instead so they are removed from active dropdowns?')) {
-        await setCustomerArchived(customer,true);
-      } else {
-        alert('Delete failed: '+error.message);
-      }
-      return;
-    }
+    const {data,error}=await supabase.rpc('delete_customer_permanently',{p_customer_id:customer.id});
     setDeletingId(null);
-    if(!data?.length) {
-      alert('No customer was deleted. Please verify the customers DELETE policy in Supabase.');
+    if(error) {
+      alert('Customer and history were not deleted. '+error.message);
       return;
     }
-    setNotice(customer.name+' was permanently deleted.');
+    if(!data||data.permanently_deleted!==true) {
+      alert('The database did not confirm permanent deletion. Please refresh and verify the customer list.');
+      return;
+    }
+    const deletedBills=Number(data.deleted_bills||0);
+    const deletedPayments=Number(data.deleted_payments||0);
+    setNotice(customer.name+' and all related history were permanently deleted ('+deletedBills+' bill(s), '+deletedPayments+' payment(s)).');
     await load(showArchived);
   }
 
@@ -491,15 +513,14 @@ function Customers() {
             <div className='min-w-[112px] sm:text-right'><p className='text-[10px] font-black uppercase tracking-wider text-slate-400'>Current due</p><p className={'mt-1 text-base font-black '+(Number(r.current_due)>0?'text-brand-orange':'text-emerald-600')}>{balancesReady?'₹ '+Number(r.current_due).toLocaleString('en-IN'):'—'}</p>{Number(r.current_advance)>0&&<p className='mt-1 text-xs font-bold text-emerald-700'>Advance ₹ {Number(r.current_advance).toLocaleString('en-IN')}</p>}</div>
             <div className='flex flex-1 items-center justify-end gap-2 sm:flex-none'>
               <button type='button' onClick={()=>openEdit(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-brand-blue sm:flex-none'><Save size={14}/> Edit</button>
-              {r.is_archived
-                ? <button type='button' disabled={deletingId!==null} onClick={()=>void setCustomerArchived(r,false)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-extrabold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600'/>:<RotateCcw size={14}/>} {deletingId===r.id?'Working…':'Restore'}</button>
-                : <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Working…':'Remove'}</button>}
+              {r.is_archived&&<button type='button' disabled={deletingId!==null} onClick={()=>void setCustomerArchived(r,false)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-extrabold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600'/>:<RotateCcw size={14}/>} Restore</button>}
+              <button type='button' disabled={deletingId!==null} onClick={()=>void removeCustomer(r)} className='inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-extrabold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50 sm:flex-none'>{deletingId===r.id?<span className='h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600'/>:<Trash2 size={14}/>} {deletingId===r.id?'Deleting…':'Delete permanently'}</button>
             </div>
           </div>
         </article>)}
         {!list.length&&<div className='p-10 text-center'><div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500'><Users size={22}/></div><p className='mt-3 font-bold text-slate-800'>{q?'No matching customers':'No customers yet'}</p><p className='mt-1 text-sm text-slate-500'>{q?'Try a different name or mobile number.':'Add your first customer to start billing.'}</p></div>}
       </div>}
-      <div className='flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between'><span>Open a customer to view their ledger. Customers with billing history are archived, not erased.</span><button type='button' onClick={()=>void load(showArchived)} className='inline-flex min-h-10 items-center justify-center rounded-lg px-3 font-bold text-brand-blue hover:bg-white'>Refresh list</button></div>
+      <div className='flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between'><span>Delete permanently removes the customer’s bills, payments and ledger history. This action cannot be undone.</span><button type='button' onClick={()=>void load(showArchived)} className='inline-flex min-h-10 items-center justify-center rounded-lg px-3 font-bold text-brand-blue hover:bg-white'>Refresh list</button></div>
     </section>
 
     {show&&<Modal title={editing?'Edit Customer':'New Customer'} close={resetForm}><form onSubmit={save} className='space-y-4'>
