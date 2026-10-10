@@ -75,7 +75,9 @@ const MUTED = [100, 116, 139] as const;
 const LIGHT = [241, 245, 249] as const;
 
 function money(value: number) {
-  return '₹ ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  // jsPDF's built-in Helvetica fonts do not contain the Indian rupee glyph.
+  // Use ASCII-safe INR so amounts render correctly across PDF viewers/printers.
+  return 'INR ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 function dateText(value: string) {
