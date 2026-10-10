@@ -20,6 +20,7 @@ export type BillPdfData = {
   subtotal: number;
   paidNow: number;
   totalDue: number;
+  advanceAmount?: number;
   items: BillPdfItem[];
 };
 
@@ -33,6 +34,7 @@ export type PaymentPdfData = {
   method: string;
   previousDue: number;
   remainingDue: number;
+  advanceAmount?: number;
   note?: string | null;
 };
 
@@ -582,6 +584,9 @@ export async function buildBillPdf(data: BillPdfData) {
       ["Today's bill",Number(data.subtotal||0),INK,'+ '],
       ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'− '],
     ];
+    if (Number(data.advanceAmount||0) > 0) {
+      summaryRows.push(['Advance carried forward',Number(data.advanceAmount||0),[16,145,82] as const,'']);
+    }
     summaryRows.forEach((row,index) => {
       const rowY = panelY+18+index*9.5;
       doc.setTextColor(...(row[2] as [number,number,number]));
@@ -599,21 +604,22 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.setTextColor(222,234,243);
     doc.setFont('helvetica','bold');
     doc.setFontSize(7.2);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'BALANCE SETTLED' : 'TOTAL BALANCE DUE',dueX+7,panelY+10);
+    const hasAdvance = Number(data.advanceAmount||0) > 0;
+    doc.text(hasAdvance ? 'CUSTOMER ADVANCE' : Number(data.totalDue||0) <= 0 ? 'BALANCE SETTLED' : 'TOTAL BALANCE DUE',dueX+7,panelY+10);
     doc.setTextColor(220,232,244);
     doc.setFont('helvetica','normal');
     doc.setFontSize(6.1);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'No amount remaining' : 'Amount remaining to pay',dueX+7,panelY+19);
+    doc.text(hasAdvance ? 'Credit available for future bills' : Number(data.totalDue||0) <= 0 ? 'No amount remaining' : 'Amount remaining to pay',dueX+7,panelY+19);
     doc.setTextColor(...accent);
     doc.setFont('helvetica','bold');
     doc.setFontSize(13.5);
-    doc.text(money(data.totalDue),dueX+7,panelY+34,{maxWidth:64});
+    doc.text(money(hasAdvance ? Number(data.advanceAmount||0) : data.totalDue),dueX+7,panelY+34,{maxWidth:64});
     doc.setFillColor(255,255,255);
     doc.roundedRect(dueX+7,panelY+38,56,7,2,2,'F');
     doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
     doc.setFontSize(5.7);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'PAID IN FULL' : 'BALANCE DUE',dueX+35,panelY+43,{align:'center'});
+    doc.text(hasAdvance ? 'ADVANCE CARRIED FORWARD' : Number(data.totalDue||0) <= 0 ? 'PAID IN FULL' : 'BALANCE DUE',dueX+35,panelY+43,{align:'center'});
     return panelY+49;
   }
 
@@ -810,27 +816,39 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
     doc.line(20,row.y+4.5,190,row.y+4.5);
   }
 
+  const advanceAmount = Number(data.advanceAmount||0);
   doc.setFillColor(...pale);
-  doc.roundedRect(15,231,180,11,2,2,'F');
+  doc.roundedRect(15,231,180,advanceAmount>0?18:11,2,2,'F');
   doc.setTextColor(...primary);
   doc.setFont('helvetica','bold');
   doc.setFontSize(8.2);
   doc.text('Remaining due',20,238.1);
   doc.setFontSize(10.3);
   doc.text(money(data.remainingDue),190,238.1,{align:'right'});
+  if (advanceAmount > 0) {
+    doc.setTextColor(...MUTED);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7.1);
+    doc.text('Advance carried forward',20,245.4);
+    doc.setTextColor(...primary);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(8.1);
+    doc.text(money(advanceAmount),190,245.4,{align:'right'});
+  }
 
   // The transaction Description is printed as the payment note.
   const note = (data.note || '').trim();
   if (note) {
+    const noteHeaderY = advanceAmount > 0 ? 253.5 : 249;
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.3);
-    doc.text('PAYMENT NOTE',15,249);
+    doc.text('PAYMENT NOTE',15,noteHeaderY);
     doc.setTextColor(...primary);
     doc.setFont('helvetica','normal');
     doc.setFontSize(7.2);
-    const noteLines = doc.splitTextToSize(note,178).slice(0,3);
-    doc.text(noteLines,15,256);
+    const noteLines = doc.splitTextToSize(note,178).slice(0,advanceAmount>0?2:3);
+    doc.text(noteLines,15,noteHeaderY+7);
   }
 
   // Reference-style footer: gold separator, navy base and contact information.
