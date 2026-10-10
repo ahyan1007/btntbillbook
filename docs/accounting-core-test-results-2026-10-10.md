@@ -9,7 +9,7 @@
 - A minimal test baseline was created from the live schema's relevant column/relationship shape, plus a compatibility `customer_balances` view and `private.is_admin()` function. This is a test harness, not a full clone of all production schema or authentication settings.
 - The accounting foundation migration was applied only in this isolated project as `accounting_core_foundation_test`.
 - The advance/payment allocation migration `20261010120000_advance_payment_and_allocation.sql` was then applied only in this isolated project as `advance_payment_and_allocation_test`.
-- Neither migration has been applied to production.
+- These test results were produced before Production rollout. Afterward, both migrations were applied to Production under versions `20261010180107` and `20261010180130`; the separate Production reconciliation check reported zero signed-balance and legacy-due mismatches.
 
 ## Results
 
@@ -57,4 +57,4 @@ The migration completed successfully, then `supabase/tests/accounting_core_recon
 
 This test proves migration installation and the listed accounting behavior against the minimal isolated harness. It is **not** a full copy of production and does not validate every production RLS policy under actual browser sessions. The RPC tests set an authenticated test JWT in a controlled SQL session and verify the database's admin check; the browser integration still requires preview/UI regression tests. Refunds, reversals, manual adjustments and advance reallocation workflows are not implemented in this phase.
 
-Do not use `supabase db push` on production yet. First reconcile the untracked `20261009154500_customer_archive_and_delete.sql` migration with remote migration history as documented in `database-migration-reconciliation.md`. Production deployment remains unapproved until the later RPC/UI work and release checks are complete.
+Production rollout was performed after migration-history reconciliation. The post-migration read-only checks found 11 source postings for 3 customers, 1 bill and 7 payments; signed balance matched expected source arithmetic at ₹141,200, legacy due matched exactly, and duplicate postings / invalid allocations were zero. This report still does not claim a signed-in browser end-to-end UI workflow was run.
