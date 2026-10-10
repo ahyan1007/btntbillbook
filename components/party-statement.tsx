@@ -202,6 +202,7 @@ export function PartyStatement() {
       ['Bills (INR)', statement.totalBills],
       ['Payments (INR)', statement.totalPayments],
       ['Closing Balance (INR)', statement.closingBalance],
+      ['Balance Status', statement.closingBalance < 0 ? 'Customer Advance' : statement.closingBalance > 0 ? 'Due' : 'Settled'],
       [],
       ['Date', 'Type', 'Reference', 'Details', 'Debit (INR)', 'Credit (INR)', 'Running Balance (INR)'],
       ...statement.transactions.map((row) => [row.date, row.type, row.reference, row.description, row.debit, row.credit, row.balance]),
@@ -222,7 +223,7 @@ export function PartyStatement() {
       <div>
         <p className='text-sm font-bold text-brand-blue'>Bangladesh Tours & Travels</p>
         <h1 className='mt-1 text-3xl font-black tracking-tight'>Party-wise Statement</h1>
-        <p className='mt-2 text-sm text-slate-500'>Customer account statement with opening balance, bills, payments and running due.</p>
+        <p className='mt-2 text-sm text-slate-500'>Customer account statement with opening balance, bills, payments and signed running balance. A negative balance means the customer has an advance.</p>
       </div>
     </div>
 
@@ -261,7 +262,7 @@ export function PartyStatement() {
         <div className='card p-4'><p className='text-xs font-bold uppercase tracking-wide text-slate-400'>Opening Balance</p><p className='mt-2 text-xl font-black'>{money(statement.openingBalance)}</p></div>
         <div className='card p-4'><p className='text-xs font-bold uppercase tracking-wide text-slate-400'>Bills in Period</p><p className='mt-2 text-xl font-black'>{money(statement.totalBills)}</p></div>
         <div className='card p-4'><p className='text-xs font-bold uppercase tracking-wide text-slate-400'>Payments in Period</p><p className='mt-2 text-xl font-black text-emerald-600'>{money(statement.totalPayments)}</p></div>
-        <div className='card border-brand-orange/30 bg-orange-50/70 p-4'><p className='text-xs font-bold uppercase tracking-wide text-brand-orange'>Closing Balance</p><p className='mt-2 text-xl font-black text-brand-orange'>{money(statement.closingBalance)}</p></div>
+        <div className={'card p-4 '+(statement.closingBalance<0?'border-emerald-200 bg-emerald-50/70':statement.closingBalance>0?'border-brand-orange/30 bg-orange-50/70':'border-slate-200 bg-slate-50')}><p className={'text-xs font-bold uppercase tracking-wide '+(statement.closingBalance<0?'text-emerald-700':statement.closingBalance>0?'text-brand-orange':'text-slate-500')}>{statement.closingBalance<0?'Customer Advance':statement.closingBalance>0?'Closing Balance Due':'Balance Settled'}</p><p className={'mt-2 text-xl font-black '+(statement.closingBalance<0?'text-emerald-800':statement.closingBalance>0?'text-brand-orange':'text-slate-700')}>{money(Math.abs(statement.closingBalance))}{statement.closingBalance<0?' advance':''}</p></div>
       </section>
 
       <section className='card mt-5 overflow-hidden'>
