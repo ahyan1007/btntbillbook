@@ -31,7 +31,7 @@ export type BillPdfData = {
 export type PaymentPdfData = {
   paymentNo: string;
   paymentDate: string;
-  receiptGeneratedAt?: string | null;
+  receiptGeneratedAt?: string;
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
