@@ -680,221 +680,252 @@ export async function buildBillPdf(data: BillPdfData) {
 
 
 export async function buildPaymentPdf(data: PaymentPdfData) {
-  const doc = new jsPDF({unit:'mm',format:'a4',compress:true,putOnlyUsedFonts:true,precision:2});
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true, putOnlyUsedFonts: true, precision: 2 });
   const brand = await businessBranding();
   const logo = brand.show_logo ? await logoDataUrl(brand.logo_url) : null;
   const primary = hexRgb(brand.primary_color, INK);
   const accent = hexRgb(brand.accent_color, ORANGE);
-  const green: readonly [number,number,number] = [16,150,100];
-  const line: readonly [number,number,number] = [218,228,238];
-  const pale: readonly [number,number,number] = [244,247,251];
+  const green: readonly [number, number, number] = [16, 128, 86];
+  const line: readonly [number, number, number] = [222, 230, 238];
+  const pale: readonly [number, number, number] = [246, 249, 252];
 
-  // Premium payment-receipt layout based on the supplied reference PDF.
+  // Clean, print-friendly payment receipt. Only presentation changes here;
+  // all displayed financial values come from the persisted PaymentPdfData.
   doc.setFillColor(...accent);
-  doc.rect(0,0,210,3,'F');
-  doc.setFillColor(255,255,255);
-  doc.rect(0,3,210,48,'F');
+  doc.rect(0, 0, 210, 2, 'F');
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 2, 210, 36, 'F');
 
-  // Logo tile and company identity.
-  doc.setFillColor(255,255,255);
-  doc.setDrawColor(...line);
-  doc.setLineWidth(0.35);
-  doc.roundedRect(15,13,42,26,3.5,3.5,'FD');
   if (logo && brand.show_logo) {
-    doc.addImage(logo,'JPEG',18,19,36,15);
+    doc.addImage(logo, 'JPEG', 15, 8, 37, 18);
   }
+
+  const companyName = brand.company_name || DEFAULT_BRANDING.company_name;
   doc.setTextColor(...primary);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(13.2);
-  const companyLines = doc.splitTextToSize(brand.company_name || DEFAULT_BRANDING.company_name, 126).slice(0,2);
-  doc.text(companyLines,63,18);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  const companyLines = doc.splitTextToSize(companyName, 132).slice(0, 2);
+  doc.text(companyLines, 59, 13);
+
+  let brandY = companyLines.length > 1 ? 25 : 20;
   doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(6.8);
-  const taglineY = companyLines.length > 1 ? 33.5 : 27;
-  doc.text(doc.splitTextToSize(brand.tagline || 'Your Trusted Travel Partner',126).slice(0,1),63,taglineY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  if (brand.tagline) {
+    doc.text(doc.splitTextToSize(brand.tagline, 132).slice(0, 1), 59, brandY);
+    brandY += 4.5;
+  }
+  if (brand.address) {
+    doc.text(doc.splitTextToSize(brand.address, 132).slice(0, 1), 59, brandY);
+    brandY += 4.2;
+  }
+  const brandContact = [brand.phone, brand.email].filter(Boolean).join('  •  ');
+  if (brandContact) {
+    doc.text(doc.splitTextToSize(brandContact, 132).slice(0, 1), 59, brandY);
+  }
 
   doc.setDrawColor(...line);
   doc.setLineWidth(0.35);
-  doc.line(15,49,195,49);
+  doc.line(15, 39, 195, 39);
 
-  // Receipt title and status.
+  // Receipt title and simple confirmation indicator.
   doc.setTextColor(...primary);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(15.5);
-  doc.text('PAYMENT RECEIPT',15,63);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text('PAYMENT RECEIPT', 15, 49);
   doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(7.5);
-  doc.text('A record of your completed payment',15,70);
-  doc.setFillColor(231,246,239);
-  doc.roundedRect(151,57,44,9,4.5,4.5,'F');
-  doc.setTextColor(...green);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(6.6);
-  doc.text('CONFIRMED',173,62.7,{align:'center'});
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.2);
+  doc.text('Receipt for payment received', 15, 56);
 
-  // Receipt number, date and payment method.
+  doc.setFillColor(232, 246, 239);
+  doc.roundedRect(151, 43, 44, 9, 4.5, 4.5, 'F');
+  doc.setTextColor(...green);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.4);
+  doc.text('PAYMENT CONFIRMED', 173, 48.6, { align: 'center' });
+
+  // Key receipt details in one aligned row.
   doc.setFillColor(...pale);
   doc.setDrawColor(...line);
-  doc.roundedRect(15,78,180,23,4,4,'FD');
-  doc.setDrawColor(...line);
-  doc.line(75,82,75,97);
-  doc.line(134,82,134,97);
+  doc.roundedRect(15, 64, 180, 22, 3, 3, 'FD');
+  doc.line(75, 68, 75, 82);
+  doc.line(134, 68, 134, 82);
+
   const meta = [
-    {x:21,label:'RECEIPT NUMBER',value:data.paymentNo},
-    {x:81,label:'PAYMENT DATE',value:dateText(data.paymentDate)},
-    {x:140,label:'PAYMENT METHOD',value:data.method || 'Cash'},
+    { x: 21, label: 'RECEIPT NUMBER', value: data.paymentNo || '—' },
+    { x: 81, label: 'PAYMENT DATE', value: dateText(data.paymentDate) },
+    { x: 140, label: 'PAYMENT METHOD', value: data.method || 'Cash' },
   ];
   for (const item of meta) {
     doc.setTextColor(...MUTED);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(6);
-    doc.text(item.label,item.x,86);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.8);
+    doc.text(item.label, item.x, 72);
     doc.setTextColor(...primary);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(8.4);
-    doc.text(doc.splitTextToSize(item.value || '—',48).slice(0,1),item.x,94.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.8);
+    doc.text(doc.splitTextToSize(item.value, 48).slice(0, 1), item.x, 80);
   }
 
-  // Customer identity on the left and billing address on the right.
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(6.5);
-  doc.text('BILLED TO',15,112);
-  doc.text('BILLING ADDRESS',130,112);
-
-  doc.setTextColor(...primary);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(11.2);
-  doc.text(doc.splitTextToSize(data.customerName || 'Customer',105).slice(0,2),15,121);
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(7.3);
-  if (data.customerPhone) doc.text('Phone  ' + data.customerPhone,15,130);
-
-  doc.setTextColor(...MUTED);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(8);
-  const addressLines = doc.splitTextToSize(data.customerAddress || 'Not provided',60).slice(0,3);
-  doc.text(addressLines,130,121);
-
+  // Customer details: compact, with enough room for long names and addresses.
+  doc.setFillColor(255, 255, 255);
   doc.setDrawColor(...line);
-  doc.setLineWidth(0.35);
-  doc.line(15,138,195,138);
+  doc.roundedRect(15, 94, 180, 30, 3, 3, 'FD');
+  doc.line(112, 99, 112, 119);
 
-  // Large amount block, following the reference's navy panel and gold accent.
-  doc.setFillColor(...primary);
-  doc.roundedRect(15,146,180,42,5,5,'F');
-  doc.setFillColor(...accent);
-  doc.roundedRect(15,146,2,42,1,1,'F');
-  doc.setTextColor(205,216,229);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(7.2);
-  doc.text('AMOUNT RECEIVED',23,156);
-  doc.setTextColor(255,255,255);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(24);
-  doc.text(money(data.amount),23,173);
-  doc.setFillColor(35,78,61);
-  doc.roundedRect(133,161,51,9,4.5,4.5,'F');
-  doc.setTextColor(197,238,218);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(5.7);
-  doc.text('PAYMENT CONFIRMED',158.5,166.8,{align:'center'});
-
-  // Clear, bold financial summary.
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.text('BILLED TO', 21, 102);
   doc.setTextColor(...primary);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(8.8);
-  doc.text('PAYMENT SUMMARY',15,199);
-  doc.setDrawColor(...line);
-  doc.setLineWidth(0.35);
-  doc.line(15,203,195,203);
-
-  const summary = [
-    {label:'Previous due',value:money(data.previousDue),color:primary,bold:false,y:211},
-    {label:'Payment received',value:'- ' + money(data.amount),color:green,bold:false,y:222},
-  ];
-  for (const row of summary) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.2);
+  const customerLines = doc.splitTextToSize(data.customerName || 'Customer', 84).slice(0, 1);
+  doc.text(customerLines, 21, 110);
+  if (data.customerPhone) {
     doc.setTextColor(...MUTED);
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(8.1);
-    doc.text(row.label,20,row.y);
-    doc.setTextColor(...row.color);
-    doc.setFont('helvetica',row.bold?'bold':'bold');
-    doc.setFontSize(8.5);
-    doc.text(row.value,190,row.y,{align:'right'});
-    doc.setDrawColor(...line);
-    doc.line(20,row.y+4.5,190,row.y+4.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(doc.splitTextToSize('Phone  ' + data.customerPhone, 84).slice(0, 1), 21, 117);
   }
 
-  const advanceAmount = Number(data.advanceAmount||0);
-  doc.setFillColor(...pale);
-  doc.roundedRect(15,231,180,advanceAmount>0?18:11,2,2,'F');
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.text('BILLING ADDRESS', 120, 102);
   doc.setTextColor(...primary);
-  doc.setFont('helvetica','bold');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.2);
+  const address = doc.splitTextToSize(data.customerAddress || 'Not provided', 68).slice(0, 2);
+  doc.text(address, 120, 110);
+
+  // The received amount is the clearest visual focal point.
+  doc.setFillColor(...pale);
+  doc.setDrawColor(220, 231, 241);
+  doc.roundedRect(15, 132, 180, 34, 3.5, 3.5, 'FD');
+  doc.setFillColor(...accent);
+  doc.roundedRect(15, 132, 2, 34, 1, 1, 'F');
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.text('AMOUNT RECEIVED', 22, 141);
+  doc.setTextColor(...primary);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text(money(data.amount), 22, 156);
+
+  doc.setFillColor(232, 246, 239);
+  doc.roundedRect(144, 145, 40, 8, 4, 4, 'F');
+  doc.setTextColor(...green);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.7);
+  doc.text('CONFIRMED', 164, 150.2, { align: 'center' });
+
+  // Simple, auditable balance summary. No balance is recalculated in the PDF.
+  doc.setTextColor(...primary);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('PAYMENT SUMMARY', 15, 180);
+  doc.setDrawColor(...line);
+  doc.setLineWidth(0.35);
+  doc.line(15, 184, 195, 184);
+
+  const previousBalance = Number(data.previousDue || 0);
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text(previousBalance < 0 ? 'Previous customer advance' : 'Previous balance', 20, 192);
+  doc.setTextColor(...primary);
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.2);
-  doc.text('Remaining due',20,238.1);
-  doc.setFontSize(10.3);
-  doc.text(money(data.remainingDue),190,238.1,{align:'right'});
+  doc.text(money(Math.abs(previousBalance)), 190, 192, { align: 'right' });
+  doc.setDrawColor(...line);
+  doc.line(20, 196, 190, 196);
+
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text('Payment received', 20, 204);
+  doc.setTextColor(...green);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.2);
+  doc.text('- ' + money(data.amount), 190, 204, { align: 'right' });
+  doc.setDrawColor(...line);
+  doc.line(20, 208, 190, 208);
+
+  const advanceAmount = Math.max(Number(data.advanceAmount || 0), 0);
+  const balanceBoxHeight = advanceAmount > 0 ? 25 : 17;
+  doc.setFillColor(...pale);
+  doc.setDrawColor(...line);
+  doc.roundedRect(15, 212, 180, balanceBoxHeight, 2.5, 2.5, 'FD');
+  doc.setTextColor(...primary);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.2);
+  doc.text('Remaining due', 20, 222);
+  doc.setFontSize(10);
+  doc.text(money(data.remainingDue), 190, 222, { align: 'right' });
+
   if (advanceAmount > 0) {
     doc.setTextColor(...MUTED);
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(7.1);
-    doc.text('Advance carried forward',20,245.4);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.text('Customer advance available', 20, 231);
     doc.setTextColor(...primary);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(8.1);
-    doc.text(money(advanceAmount),190,245.4,{align:'right'});
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.2);
+    doc.text(money(advanceAmount), 190, 231, { align: 'right' });
   }
 
-  // The transaction Description is printed as the payment note.
+  // Preserve any actual payment description entered by the user.
   const note = (data.note || '').trim();
   if (note) {
-    const noteHeaderY = advanceAmount > 0 ? 253.5 : 249;
+    const noteY = advanceAmount > 0 ? 243 : 237;
     doc.setTextColor(...MUTED);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(6.3);
-    doc.text('PAYMENT NOTE',15,noteHeaderY);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.1);
+    doc.text('PAYMENT NOTE', 15, noteY);
+    const noteLines = doc.splitTextToSize(note, 178).slice(0, 2);
     doc.setTextColor(...primary);
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(7.2);
-    const noteLines = doc.splitTextToSize(note,178).slice(0,advanceAmount>0?2:3);
-    doc.text(noteLines,15,noteHeaderY+7);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(noteLines, 15, noteY + 5.5);
   }
 
-  // Reference-style footer: gold separator, navy base and contact information.
+  // Compact company footer with a clear separation from the receipt content.
   doc.setFillColor(...accent);
-  doc.rect(0,272,210,1.5,'F');
+  doc.rect(0, 264, 210, 1.5, 'F');
   doc.setFillColor(...primary);
-  doc.rect(0,273.5,210,23.5,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFont('helvetica','bold');
+  doc.rect(0, 265.5, 210, 31.5, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
-  doc.text(brand.company_name || DEFAULT_BRANDING.company_name,15,281);
-  doc.setTextColor(211,221,233);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(6.1);
-  if (brand.address) doc.text(doc.splitTextToSize(brand.address,112).slice(0,1),15,287.5);
-  const contact = [brand.phone,brand.email,brand.website].filter(Boolean).join('  •  ');
-  if (contact) doc.text(doc.splitTextToSize(contact,130).slice(0,1),15,293);
-  doc.setTextColor(...accent);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(5.8);
-  doc.text('OFFICIAL PAYMENT RECEIPT',195,281,{align:'right'});
-  doc.setTextColor(211,221,233);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(5.8);
-  doc.text('Computer-generated document',195,288,{align:'right'});
-  if (brand.footer_text) {
-    doc.setFontSize(5.2);
-    doc.text(doc.splitTextToSize(brand.footer_text,70).slice(0,1),195,293,{align:'right'});
+  doc.text(companyName, 15, 274);
+  doc.setTextColor(218, 226, 236);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  if (brand.address) {
+    doc.text(doc.splitTextToSize(brand.address, 112).slice(0, 1), 15, 281);
   }
+  const footerContact = [brand.phone, brand.email, brand.website].filter(Boolean).join('  •  ');
+  if (footerContact) {
+    doc.text(doc.splitTextToSize(footerContact, 138).slice(0, 1), 15, 288);
+  }
+  if (brand.footer_text) {
+    doc.setFontSize(5.4);
+    doc.text(doc.splitTextToSize(brand.footer_text, 138).slice(0, 1), 15, 294);
+  }
+  doc.setTextColor(...accent);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.8);
+  doc.text('OFFICIAL PAYMENT RECEIPT', 195, 274, { align: 'right' });
+  doc.setTextColor(218, 226, 236);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.8);
+  doc.text('Computer-generated document', 195, 281, { align: 'right' });
 
   return doc;
 }
-
 
 export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: string) {
   const blob = doc.output('blob');
