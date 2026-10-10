@@ -627,6 +627,7 @@ function Bills(){
  const [openingAccounts,setOpeningAccounts]=useState<Customer[]>([]);
  const [openingLoading,setOpeningLoading]=useState(true);
  const [openingError,setOpeningError]=useState<string|null>(null);
+ const [showArchived,setShowArchived]=useState(false);
  const SIZE=20;
  const QUERY_PAGE=500;
  const BILL_FIELDS='id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,notes,created_at,customer_id,customers(name,phone,address,is_archived)';
@@ -668,7 +669,7 @@ function Bills(){
   }
  }
 
- async function load(nextPage=page,query=q){
+ async function load(nextPage=page,query=q,includeArchived=showArchived){
   setLoading(true);
   setLoadError(null);
   const startAt=(nextPage-1)*SIZE;
@@ -676,6 +677,20 @@ function Bills(){
   let count=0;
 
   try {
+   let archivedCustomerIds:string[]=[];
+   if(!includeArchived){
+    for(let offset=0;;offset+=QUERY_PAGE){
+     const result=await supabase.from('customers')
+      .select('id')
+      .eq('is_archived',true)
+      .range(offset,offset+QUERY_PAGE-1);
+     if(result.error) throw new Error(result.error.message);
+     const chunk=result.data||[];
+     archivedCustomerIds.push(...chunk.map((customer:any)=>customer.id));
+     if(chunk.length<QUERY_PAGE) break;
+    }
+   }
+
    if(query.trim()){
     const term=query.trim();
     const matchingBills=new Map<string,any>();
@@ -719,14 +734,19 @@ function Bills(){
      }
     }
 
-    const all=Array.from(matchingBills.values()).sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+    const all=Array.from(matchingBills.values())
+     .filter((bill:any)=>includeArchived||bill.customers?.is_archived!==true)
+     .sort((a:any,b:any)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
     count=all.length;
     selectedBills=all.slice(startAt,startAt+SIZE);
    } else {
-    const result=await supabase.from('bills')
+    let billQuery= supabase.from('bills')
      .select('id,bill_no,bill_date,subtotal,previous_due,paid_now,total_due,notes,created_at,customer_id,customers(name,phone,address,is_archived)',{count:'exact'})
-     .order('created_at',{ascending:false})
-     .range(startAt,startAt+SIZE-1);
+     .order('created_at',{ascending:false});
+    if(!includeArchived&&archivedCustomerIds.length){
+     billQuery=billQuery.or('customer_id.is.null,customer_id.not.in.('+archivedCustomerIds.join(',')+')');
+    }
+    const result=await billQuery.range(startAt,startAt+SIZE-1);
     if(result.error) throw new Error(result.error.message);
     selectedBills=result.data||[];
     count=result.count||0;
@@ -762,7 +782,7 @@ function Bills(){
 
  useEffect(()=>{void load(1,'');void loadOpeningBalanceAccounts()},[]);
  const pages=Math.max(1,Math.ceil(total/SIZE));
- const matchedOpeningAccounts=openingAccounts.filter(customer=>(customer.name+' '+(customer.phone||'')+' '+(customer.address||'')).toLowerCase().includes(q.trim().toLowerCase()));
+ const matchedOpeningAccounts=openingAccounts.filter(customer=>(showArchived||!customer.is_archived)&&(customer.name+' '+(customer.phone||'')+' '+(customer.address||'')).toLowerCase().includes(q.trim().toLowerCase()));
 
  return <>
   <Head title='Bills' sub='Browse saved booking bills and view customer opening balances separately.'/>
@@ -776,9 +796,10 @@ function Bills(){
     <div className='flex flex-col gap-2 sm:flex-row'>
      <button type='submit' className='btn btn-primary' disabled={loading}><Search size={16}/>{loading?'Searching…':'Search bills'}</button>
      {q&&<button type='button' className='btn btn-secondary' disabled={loading} onClick={()=>{setQ('');void load(1,'')}}>Clear</button>}
+     <button type='button' className='btn btn-secondary w-full sm:w-auto' disabled={loading} onClick={()=>{const next=!showArchived;setShowArchived(next);void load(1,q,next)}}>{showArchived?<RotateCcw size={16}/>:<Archive size={16}/>} {showArchived?'Hide archived':'Show archived'}</button>
     </div>
    </form>
-   <p className='mt-3 text-xs leading-5 text-slate-500'>Bills below are saved invoice records. Customer opening balances appear in a separate section and are not treated as newly issued bills.</p>
+   <p className='mt-3 text-xs leading-5 text-slate-500'>{showArchived?'Archived customer records are included in both sections.':'Archived customers are hidden here by default; their historical bills and payment ledger are preserved. Customer opening balances appear separately and are not treated as newly issued bills.'}</p>
   </div>
 
   <section className='card mt-4 overflow-hidden'>
@@ -813,7 +834,7 @@ function Bills(){
 
   {loadError&&<div role='alert' className='mt-4 break-words rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800'>Bills could not be loaded: {loadError}</div>}
   <div className='card mt-4 overflow-hidden'>
-   <div className='border-b border-slate-100 bg-white p-4 sm:p-5'><h2 className='font-black text-slate-900'>Saved Bills</h2><p className='mt-1 text-xs text-slate-500'>Only issued bill records appear in this list.</p></div>
+   <div className='border-b border-slate-100 bg-white p-4 sm:p-5'><h2 className='font-black text-slate-900'>Saved Bills</h2><p className='mt-1 text-xs text-slate-500'>{showArchived?'Issued bills for active and archived customers are shown.':'Only active-customer bills are shown. Archived bills remain saved for accounting and can be viewed with “Show archived”.'}</p></div>
    {loading?<div className='p-10 text-center text-sm text-slate-500'><span className='mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-blue'/><p className='mt-3'>Loading bills…</p></div>
    :<div className='divide-y divide-slate-100'>
     {rows.map((bill,index)=>{
@@ -841,8 +862,8 @@ function Bills(){
     })}
     {!rows.length&&<div className='p-10 text-center'>
       <div className='mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400'><ReceiptText size={22}/></div>
-      <p className='mt-3 font-bold text-slate-800'>{q?'No matching bills found':'No bills recorded yet'}</p>
-      <p className='mt-1 text-sm leading-6 text-slate-500'>{q?'Try the full customer name or bill number. Opening-balance accounts are searched in the separate section above.':'Create a bill from New Bill; customers whose balances came from an opening amount will appear in the section above.'}</p>
+      <p className='mt-3 font-bold text-slate-800'>{q?'No matching bills found':showArchived?'No bills recorded yet':'No active-customer bills found'}</p>
+      <p className='mt-1 text-sm leading-6 text-slate-500'>{q?'Try the full customer name or bill number. Opening-balance accounts are searched in the separate section above.':showArchived?'Create a bill from New Bill; customers whose balances came from an opening amount will appear in the section above.':'Archived customer bills may still exist for accounting. Choose “Show archived” above to view them.'}</p>
      </div>}
    </div>}
   </div>
