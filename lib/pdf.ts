@@ -15,11 +15,16 @@ export type BillPdfData = {
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
+  // Present only for bill-history PDFs so advance can be reconstructed at issuance time.
+  customerId?: string;
+  createdAt?: string;
   description?: string | null;
   previousDue: number;
   subtotal: number;
   paidNow: number;
   totalDue: number;
+  advanceAmount?: number;
+  advanceApplied?: number;
   items: BillPdfItem[];
 };
 
@@ -33,6 +38,7 @@ export type PaymentPdfData = {
   method: string;
   previousDue: number;
   remainingDue: number;
+  advanceAmount?: number;
   note?: string | null;
 };
 
@@ -72,7 +78,9 @@ const MUTED = [100, 116, 139] as const;
 const LIGHT = [241, 245, 249] as const;
 
 function money(value: number) {
-  return '₹ ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  // jsPDF's built-in Helvetica fonts do not contain the Indian rupee glyph.
+  // Use ASCII-safe INR so amounts render correctly across PDF viewers/printers.
+  return 'INR ' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 function dateText(value: string) {
@@ -569,9 +577,10 @@ export async function buildBillPdf(data: BillPdfData) {
     doc.text('All amounts in INR',195,headingY,{align:'right'});
 
     const panelY = startY+30;
+    const panelHeight = Number(data.advanceAmount||0) > 0 || Number(data.advanceApplied||0) > 0 ? 58 : 49;
     doc.setFillColor(255,255,255);
     doc.setDrawColor(218,228,238);
-    doc.roundedRect(15,panelY,99,49,3.5,3.5,'FD');
+    doc.roundedRect(15,panelY,99,panelHeight,3.5,3.5,'FD');
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.2);
@@ -580,8 +589,14 @@ export async function buildBillPdf(data: BillPdfData) {
     const summaryRows: Array<[string,number,readonly [number,number,number],string]> = [
       ['Previous balance due',Number(data.previousDue||0),INK,''],
       ["Today's bill",Number(data.subtotal||0),INK,'+ '],
-      ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'− '],
+      ['Payment received today',Number(data.paidNow||0),[16,145,82] as const,'- '],
     ];
+    if (Number(data.advanceApplied||0) > 0) {
+      summaryRows.push(['Advance applied to this bill',Number(data.advanceApplied||0),[16,145,82] as const,'- ']);
+    }
+    if (Number(data.advanceAmount||0) > 0) {
+      summaryRows.push(['Advance carried forward',Number(data.advanceAmount||0),[16,145,82] as const,'']);
+    }
     summaryRows.forEach((row,index) => {
       const rowY = panelY+18+index*9.5;
       doc.setTextColor(...(row[2] as [number,number,number]));
@@ -595,30 +610,34 @@ export async function buildBillPdf(data: BillPdfData) {
 
     const dueX = 119;
     doc.setFillColor(...primary);
-    doc.roundedRect(dueX,panelY,76,49,3.5,3.5,'F');
+    doc.roundedRect(dueX,panelY,76,panelHeight,3.5,3.5,'F');
     doc.setTextColor(222,234,243);
     doc.setFont('helvetica','bold');
     doc.setFontSize(7.2);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'BALANCE SETTLED' : 'TOTAL BALANCE DUE',dueX+7,panelY+10);
+    const hasAdvance = Number(data.advanceAmount||0) > 0;
+    doc.text(hasAdvance ? 'CUSTOMER ADVANCE' : Number(data.totalDue||0) <= 0 ? 'BALANCE SETTLED' : 'TOTAL BALANCE DUE',dueX+7,panelY+10);
     doc.setTextColor(220,232,244);
     doc.setFont('helvetica','normal');
     doc.setFontSize(6.1);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'No amount remaining' : 'Amount remaining to pay',dueX+7,panelY+19);
+    doc.text(hasAdvance ? 'Credit available for future bills' : Number(data.totalDue||0) <= 0 ? 'No amount remaining' : 'Amount remaining to pay',dueX+7,panelY+19);
     doc.setTextColor(...accent);
     doc.setFont('helvetica','bold');
     doc.setFontSize(13.5);
-    doc.text(money(data.totalDue),dueX+7,panelY+34,{maxWidth:64});
+    doc.text(money(hasAdvance ? Number(data.advanceAmount||0) : data.totalDue),dueX+7,panelY+34,{maxWidth:64});
     doc.setFillColor(255,255,255);
     doc.roundedRect(dueX+7,panelY+38,56,7,2,2,'F');
     doc.setTextColor(...primary);
     doc.setFont('helvetica','bold');
     doc.setFontSize(5.7);
-    doc.text(Number(data.totalDue||0) <= 0 ? 'PAID IN FULL' : 'BALANCE DUE',dueX+35,panelY+43,{align:'center'});
-    return panelY+49;
+    doc.text(hasAdvance ? 'ADVANCE CARRIED FORWARD' : Number(data.totalDue||0) <= 0 ? 'PAID IN FULL' : 'BALANCE DUE',dueX+35,panelY+43,{align:'center'});
+    return panelY+panelHeight;
   }
 
   let summaryStart = y+3;
-  if (summaryStart+96 > 278) {
+  const summaryRequiredHeight = Number(data.advanceAmount||0) > 0 || Number(data.advanceApplied||0) > 0 ? 105 : 96;
+  // Leave room for the note and footer. A one-millimetre safety margin is enough:
+  // small bills with advance fit on page 1, while long bills still continue to page 2.
+  if (summaryStart+summaryRequiredHeight > 282) {
     doc.addPage();
     drawBrandBanner();
     doc.setTextColor(...primary);
@@ -795,7 +814,7 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
 
   const summary = [
     {label:'Previous due',value:money(data.previousDue),color:primary,bold:false,y:211},
-    {label:'Payment received',value:'− ' + money(data.amount),color:green,bold:false,y:222},
+    {label:'Payment received',value:'- ' + money(data.amount),color:green,bold:false,y:222},
   ];
   for (const row of summary) {
     doc.setTextColor(...MUTED);
@@ -810,27 +829,39 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
     doc.line(20,row.y+4.5,190,row.y+4.5);
   }
 
+  const advanceAmount = Number(data.advanceAmount||0);
   doc.setFillColor(...pale);
-  doc.roundedRect(15,231,180,11,2,2,'F');
+  doc.roundedRect(15,231,180,advanceAmount>0?18:11,2,2,'F');
   doc.setTextColor(...primary);
   doc.setFont('helvetica','bold');
   doc.setFontSize(8.2);
   doc.text('Remaining due',20,238.1);
   doc.setFontSize(10.3);
   doc.text(money(data.remainingDue),190,238.1,{align:'right'});
+  if (advanceAmount > 0) {
+    doc.setTextColor(...MUTED);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7.1);
+    doc.text('Advance carried forward',20,245.4);
+    doc.setTextColor(...primary);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(8.1);
+    doc.text(money(advanceAmount),190,245.4,{align:'right'});
+  }
 
   // The transaction Description is printed as the payment note.
   const note = (data.note || '').trim();
   if (note) {
+    const noteHeaderY = advanceAmount > 0 ? 253.5 : 249;
     doc.setTextColor(...MUTED);
     doc.setFont('helvetica','bold');
     doc.setFontSize(6.3);
-    doc.text('PAYMENT NOTE',15,249);
+    doc.text('PAYMENT NOTE',15,noteHeaderY);
     doc.setTextColor(...primary);
     doc.setFont('helvetica','normal');
     doc.setFontSize(7.2);
-    const noteLines = doc.splitTextToSize(note,178).slice(0,3);
-    doc.text(noteLines,15,256);
+    const noteLines = doc.splitTextToSize(note,178).slice(0,advanceAmount>0?2:3);
+    doc.text(noteLines,15,noteHeaderY+7);
   }
 
   // Reference-style footer: gold separator, navy base and contact information.
