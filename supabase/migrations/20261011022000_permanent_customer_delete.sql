@@ -77,14 +77,16 @@ BEGIN
 
   -- Delete allocation links first because they reference both bills and ledger rows.
   DELETE FROM public.invoice_allocations a
-  WHERE a.customer_id = p_customer_id
-    AND a.user_id = v_user
-    OR a.bill_id::text = ANY(v_bill_ids)
-    OR a.credit_ledger_entry_id IN (
-      SELECT e.id
-      FROM public.customer_ledger_entries e
-      WHERE e.customer_id = p_customer_id
-        AND e.user_id = v_user
+  WHERE a.user_id = v_user
+    AND (
+      a.customer_id = p_customer_id
+      OR a.bill_id::text = ANY(v_bill_ids)
+      OR a.credit_ledger_entry_id IN (
+        SELECT e.id
+        FROM public.customer_ledger_entries e
+        WHERE e.customer_id = p_customer_id
+          AND e.user_id = v_user
+      )
     );
   GET DIAGNOSTICS v_allocation_count = ROW_COUNT;
 
