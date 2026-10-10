@@ -16,20 +16,44 @@ export function CustomerLedger({customerId,onClose}:Props){
   useEffect(()=>{
     async function load(){
       setLoading(true);
-      const [c,l,b,p]=await Promise.all([
+      const [c,l,b,p,a]=await Promise.all([
         supabase.from('customer_balances').select('id,name,phone,address,current_due').eq('id',customerId).single(),
         supabase.from('customer_ledger_balances').select('id,current_balance').eq('id',customerId).single(),
         supabase.from('bills').select('id,bill_no,bill_date,subtotal,paid_now,total_due,notes').eq('customer_id',customerId).order('created_at',{ascending:false}),
-        supabase.from('payments').select('id,payment_no,payment_date,amount,payment_method,notes').eq('customer_id',customerId).order('created_at',{ascending:false})
+        supabase.from('payments').select('id,payment_no,payment_date,amount,payment_method,notes').eq('customer_id',customerId).order('created_at',{ascending:false}),
+        supabase.from('invoice_allocations').select('bill_id,amount').eq('customer_id',customerId)
       ]);
       const signedBalance = l.error ? Number.NaN : Number(l.data?.current_balance ?? 0);
-      setBalanceError(l.error ? 'Signed balance could not be verified: '+l.error.message : null);
+      const loadErrors = [
+        l.error ? 'Signed balance could not be verified: '+l.error.message : null,
+        a.error ? 'Invoice allocations could not be verified; per-bill outstanding amounts are unavailable. '+a.error.message : null,
+      ].filter(Boolean);
+      setBalanceError(loadErrors.length ? loadErrors.join(' ') : null);
       setCustomer(c.data ? {
         ...c.data,
         current_balance: signedBalance,
         current_advance: Number.isFinite(signedBalance) ? Math.max(-signedBalance,0) : Number.NaN,
       } : null);
-      setBills(b.data||[]);setPayments(p.data||[]);setLoading(false);
+
+      const allocatedByBill = new Map<string, number>();
+      if (!a.error) {
+        (a.data || []).forEach((allocation: any) => {
+          allocatedByBill.set(
+            allocation.bill_id,
+            (allocatedByBill.get(allocation.bill_id) || 0) + Number(allocation.amount || 0)
+          );
+        });
+      }
+      setBills((b.data||[]).map((bill: any) => {
+        if (a.error) return { ...bill, allocated_amount: Number.NaN, outstanding_due: Number.NaN };
+        const allocated = allocatedByBill.get(bill.id) || 0;
+        return {
+          ...bill,
+          allocated_amount: allocated,
+          outstanding_due: Math.max(Number(bill.subtotal || 0) - allocated, 0),
+        };
+      }));
+      setPayments(p.data||[]);setLoading(false);
     }
     load();
   },[customerId]);
@@ -48,7 +72,7 @@ export function CustomerLedger({customerId,onClose}:Props){
         <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Payments</p><p className='mt-1 text-2xl font-black'>{payments.length}</p></div>
       </div>
       <div className='mt-6 grid gap-6 lg:grid-cols-2'>
-        <section className='rounded-2xl border border-slate-200 overflow-hidden'><div className='flex items-center gap-2 border-b border-slate-100 p-4 font-black'><ReceiptText size={17} className='text-brand-blue'/> Bills</div><div className='divide-y divide-slate-100'>{bills.map(b=><div key={b.id} className='p-4'><div className='flex justify-between gap-3'><div><p className='font-bold'>{b.bill_no}</p><p className='text-xs text-slate-400'>{new Date(b.bill_date).toLocaleDateString('en-GB')}</p>{b.notes&&<p className='mt-1 whitespace-pre-wrap break-words text-xs text-slate-600'><b>Description: </b>{b.notes}</p>}</div><b className='shrink-0'>₹ {Number(b.subtotal).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-xs'><span className='text-slate-400'>Paid ₹ {Number(b.paid_now).toLocaleString('en-IN')}</span><span className='font-bold text-brand-orange'>Due ₹ {Number(b.total_due).toLocaleString('en-IN')}</span></div></div>)}{!bills.length&&<p className='p-6 text-sm text-slate-400'>No bills yet.</p>}</div></section>
+        <section className='rounded-2xl border border-slate-200 overflow-hidden'><div className='flex items-center gap-2 border-b border-slate-100 p-4 font-black'><ReceiptText size={17} className='text-brand-blue'/> Bills</div><div className='divide-y divide-slate-100'>{bills.map(b=><div key={b.id} className='p-4'><div className='flex justify-between gap-3'><div><p className='font-bold'>{b.bill_no}</p><p className='text-xs text-slate-400'>{new Date(b.bill_date).toLocaleDateString('en-GB')}</p>{b.notes&&<p className='mt-1 whitespace-pre-wrap break-words text-xs text-slate-600'><b>Description: </b>{b.notes}</p>}</div><b className='shrink-0'>₹ {Number(b.subtotal).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-xs'><span className='text-slate-400'>Applied ₹ {Number.isFinite(Number(b.allocated_amount))?Number(b.allocated_amount).toLocaleString('en-IN'):'—'}</span><span className='font-bold text-brand-orange'>Due ₹ {Number.isFinite(Number(b.outstanding_due))?Number(b.outstanding_due).toLocaleString('en-IN'):'—'}</span></div></div>)}{!bills.length&&<p className='p-6 text-sm text-slate-400'>No bills yet.</p>}</div></section>
         <section className='rounded-2xl border border-slate-200 overflow-hidden'><div className='flex items-center gap-2 border-b border-slate-100 p-4 font-black'><WalletCards size={17} className='text-brand-orange'/> Payments</div><div className='divide-y divide-slate-100'>{payments.map(p=><div key={p.id} className='p-4'><div className='flex justify-between gap-3'><div><p className='font-bold'>{p.payment_no}</p><p className='text-xs text-slate-400'>{new Date(p.payment_date).toLocaleDateString('en-GB')} · {p.payment_method}</p></div><b className='text-emerald-600'>₹ {Number(p.amount).toLocaleString('en-IN')}</b></div>{p.notes&&<p className='mt-2 whitespace-pre-wrap break-words text-xs text-slate-500'><b>Description: </b>{p.notes}</p>}</div>)}{!payments.length&&<p className='p-6 text-sm text-slate-400'>No payments yet.</p>}</div></section>
       </div>
     </div>}
