@@ -85,14 +85,14 @@ The latest Supabase security advisor no longer reports the five core tables as R
 - `financial_operation_keys` has RLS enabled and no policy, which is intentional for direct client isolation; the authenticated role has no SELECT privilege.
 - `create_bill` and `record_payment` are SECURITY DEFINER RPCs executable by `authenticated`. Their source pins `search_path`, explicitly checks `auth.uid()` and `private.is_admin()`, validates customer ownership, and tests above confirm non-admin calls are rejected. The functions have no EXECUTE privilege for `anon`; keep them under review and do not grant EXECUTE to `PUBLIC`.
 - Anonymous role has SELECT grants on some public tables, but RLS returned zero rows for customers, bills, and payments in the smoke test. RLS must remain enabled and the policies must not be weakened.
-- Leaked-password protection is disabled in Supabase Auth on both test and Production; enable this in each project's Auth password-security settings before production release, according to the [Supabase password security guide](https://supabase.com/docs/guides/auth/password-security).
+- Leaked-password protection is disabled in Supabase Auth on both test and Production. The connected Supabase organization is currently on the Free plan; current Supabase documentation says leaked-password protection is available on Pro and above. Before launch, either upgrade if this control is required or explicitly document acceptance of this limitation and review compensating controls. See the [Supabase password security guide](https://supabase.com/docs/guides/auth/password-security).
 - Production's `customers_delete_own` and `customers_admin_delete` policies overlap. Review whether to keep one policy as a separate, explicit change; this was not altered by migration repair.
 
 ## Release readiness decision
 
 **Not production-ready yet.** The customer count discrepancy is now likely explained by a successful Data API deletion and no financial-record mismatch was found. Accounting transactional tests passed, and the documentation/build check for the prior commit succeeded, but release remains gated by:
 
-1. enabling Supabase Auth leaked-password protection on both test and Production;
+1. deciding whether to upgrade the currently Free Supabase organization to enable leaked-password protection or formally accept/document this plan limitation and compensating controls;
 2. an explicit review/decision on duplicate Production customer DELETE policies;
 3. verifying the new test-only RLS setup script is kept separate from deployable migrations;
 4. end-to-end browser/UI tests for bill creation, payment entry, PDF history, ledger display, and advance carry-forward on the intended app branch; and
