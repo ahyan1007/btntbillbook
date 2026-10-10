@@ -31,6 +31,7 @@ export type BillPdfData = {
 export type PaymentPdfData = {
   paymentNo: string;
   paymentDate: string;
+  receiptGeneratedAt?: string | null;
   customerName: string;
   customerPhone?: string | null;
   customerAddress?: string | null;
@@ -773,9 +774,9 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
   // Key receipt details in one aligned row.
   doc.setFillColor(...pale);
   doc.setDrawColor(...line);
-  doc.roundedRect(15, 64, 180, 22, 3, 3, 'FD');
-  doc.line(75, 68, 75, 82);
-  doc.line(134, 68, 134, 82);
+  doc.roundedRect(15, 64, 180, 26, 3, 3, 'FD');
+  doc.line(75, 68, 75, 88);
+  doc.line(134, 68, 134, 88);
 
   const meta = [
     { x: 21, label: 'RECEIPT NUMBER', value: data.paymentNo || '—' },
@@ -792,6 +793,15 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
     doc.setFontSize(7.8);
     doc.text(doc.splitTextToSize(item.value, 48).slice(0, 1), item.x, 80);
   }
+
+  doc.setTextColor(...MUTED);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.2);
+  doc.text('RECEIPT GENERATED', 21, 83.5);
+  doc.setTextColor(...primary);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.8);
+  doc.text(doc.splitTextToSize(dateTimeText(data.receiptGeneratedAt), 48).slice(0, 1), 21, 88);
 
   // Customer details: compact, with enough room for long names and addresses.
   doc.setFillColor(255, 255, 255);
