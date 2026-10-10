@@ -38,6 +38,7 @@ The migration completed successfully, then `supabase/tests/accounting_core_recon
 | RPC reports the existing advance applied to the new bill separately from leftover advance | PASS |
 | Retrying `create_bill` with the same idempotency key returns the same response and inserts one bill | PASS |
 | Existing advance is applied to a later bill using FIFO allocation | PASS |
+| A partially allocated older invoice is completed before allocating credit to newer invoices | PASS |
 
 ## Synthetic fixture arithmetic
 
@@ -50,6 +51,7 @@ The migration completed successfully, then `supabase/tests/accounting_core_recon
 - Overpayment test: a customer with a ₹30 credit balance received a new ₹10 bill with ₹1,000 paid-now. RPC response reconciled to ₹0 due, signed balance −₹960, and customer advance ₹960; it created one bill only.
 - Different-request retry test: reusing the ₹500 payment's idempotency key for a ₹501 payment was rejected.
 - Exact advance-applied test: existing signed balance −₹50 followed by a new ₹80 bill returned `advance_applied=₹50`, `total_due=₹30`, and `advance_amount=₹0`.
+- Partial FIFO repair test: a deliberately partial ₹30 allocation to an older ₹100 invoice was completed to ₹100 before the same credit's remaining ₹50 was allocated to a second invoice; the newer test invoice received ₹0, and the customer signed balance reconciled to ₹40.
 
 ## Important limitations
 
