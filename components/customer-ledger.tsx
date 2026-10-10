@@ -11,16 +11,25 @@ export function CustomerLedger({customerId,onClose}:Props){
   const [bills,setBills]=useState<any[]>([]);
   const [payments,setPayments]=useState<any[]>([]);
   const [loading,setLoading]=useState(true);
+  const [balanceError,setBalanceError]=useState<string|null>(null);
 
   useEffect(()=>{
     async function load(){
       setLoading(true);
-      const [c,b,p]=await Promise.all([
+      const [c,l,b,p]=await Promise.all([
         supabase.from('customer_balances').select('id,name,phone,address,current_due').eq('id',customerId).single(),
+        supabase.from('customer_ledger_balances').select('id,current_balance').eq('id',customerId).single(),
         supabase.from('bills').select('id,bill_no,bill_date,subtotal,paid_now,total_due,notes').eq('customer_id',customerId).order('created_at',{ascending:false}),
         supabase.from('payments').select('id,payment_no,payment_date,amount,payment_method,notes').eq('customer_id',customerId).order('created_at',{ascending:false})
       ]);
-      setCustomer(c.data);setBills(b.data||[]);setPayments(p.data||[]);setLoading(false);
+      const signedBalance = l.error ? Number.NaN : Number(l.data?.current_balance ?? 0);
+      setBalanceError(l.error ? 'Signed balance could not be verified: '+l.error.message : null);
+      setCustomer(c.data ? {
+        ...c.data,
+        current_balance: signedBalance,
+        current_advance: Number.isFinite(signedBalance) ? Math.max(-signedBalance,0) : Number.NaN,
+      } : null);
+      setBills(b.data||[]);setPayments(p.data||[]);setLoading(false);
     }
     load();
   },[customerId]);
@@ -31,8 +40,10 @@ export function CustomerLedger({customerId,onClose}:Props){
       <button onClick={onClose} className='grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-slate-50' aria-label='Close ledger'><X size={21}/></button>
     </div>
     {loading?<div className='p-10 text-center text-sm text-slate-400'>Loading ledger...</div>:<div className='p-4 sm:p-5'>
-      <div className='grid gap-3 md:grid-cols-3'>
-        <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Current Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(customer?.current_due||0).toLocaleString('en-IN')}</p></div>
+      {balanceError&&<div role='alert' className='mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900'>{balanceError}</div>}
+      <div className='grid gap-3 md:grid-cols-4'>
+        <div className='rounded-2xl bg-orange-50 p-4'><p className='text-xs text-slate-500'>Current Due</p><p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(customer?.current_due||0).toLocaleString('en-IN')}</p></div>
+        <div className='rounded-2xl bg-emerald-50 p-4'><p className='text-xs text-emerald-700'>Customer Advance</p><p className='mt-1 text-2xl font-black text-emerald-800'>{Number.isFinite(Number(customer?.current_advance))?'₹ '+Number(customer?.current_advance||0).toLocaleString('en-IN'):'—'}</p></div>
         <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Bills</p><p className='mt-1 text-2xl font-black'>{bills.length}</p></div>
         <div className='rounded-2xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Payments</p><p className='mt-1 text-2xl font-black'>{payments.length}</p></div>
       </div>
