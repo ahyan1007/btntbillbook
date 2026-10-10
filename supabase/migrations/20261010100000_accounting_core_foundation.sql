@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS public.customer_ledger_entries (
   source_type text NOT NULL CHECK (
     source_type IN (
       'opening_balance',
+      'opening_advance',
       'bill',
       'payment',
       'refund',
@@ -24,10 +25,14 @@ CREATE TABLE IF NOT EXISTS public.customer_ledger_entries (
   debit numeric(12,2) NOT NULL DEFAULT 0 CHECK (debit >= 0),
   credit numeric(12,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
   description text,
+  reverses_entry_id uuid REFERENCES public.customer_ledger_entries(id) ON DELETE RESTRICT,
   created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT customer_ledger_one_sided_amount CHECK (
     (debit > 0 AND credit = 0) OR (debit = 0 AND credit > 0)
+  ),
+  CONSTRAINT customer_ledger_reversal_source_check CHECK (
+    reverses_entry_id IS NULL OR (source_type = 'reversal' AND reverses_entry_id <> id)
   )
 );
 
