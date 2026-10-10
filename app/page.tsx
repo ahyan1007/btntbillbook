@@ -7,11 +7,16 @@ import { CustomerLedger } from '@/components/customer-ledger';
 import { PwaInstall } from '@/components/pwa-install';
 import { PartyStatement } from '@/components/party-statement';
 
-type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;opening_due?:number;is_archived?:boolean};
+type Customer={id:string;name:string;phone:string|null;address:string|null;current_due:number;current_balance:number;current_advance:number;opening_due?:number;is_archived?:boolean};
 type Item={passenger_name:string;travel_date:string;service_type:string;details:string;amount:string};
 type View='dashboard'|'customers'|'bill'|'payments'|'bills'|'statement';
 
 type CustomerLoadResult = { rows: Customer[]; error: string | null; balancesReady: boolean };
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+}
 
 async function fetchCustomerRecords(includeArchived = false): Promise<CustomerLoadResult> {
   const base: any[] = [];
@@ -27,7 +32,7 @@ async function fetchCustomerRecords(includeArchived = false): Promise<CustomerLo
 
     if (error) {
       return {
-        rows: base.map((customer) => ({ ...customer, current_due: Number.NaN })) as Customer[],
+        rows: base.map((customer) => ({ ...customer, current_due: Number.NaN, current_balance: Number.NaN, current_advance: Number.NaN })) as Customer[],
         error: 'Could not load all customers: ' + error.message,
         balancesReady: false,
       };
@@ -40,41 +45,71 @@ async function fetchCustomerRecords(includeArchived = false): Promise<CustomerLo
 
   if (!base.length) return { rows: [], error: null, balancesReady: true };
 
-  const balanceById = new Map<string, number>();
+  const balancesById = new Map<string, { current_due: number; current_balance: number }>();
   for (let start = 0; start < base.length; start += 100) {
     const ids = base.slice(start, start + 100).map((customer) => customer.id);
-    const { data, error } = await supabase
-      .from('customer_balances')
-      .select('id,current_due')
-      .in('id', ids);
+    const [legacyResult, ledgerResult] = await Promise.all([
+      supabase.from('customer_balances').select('id,current_due').in('id', ids),
+      supabase.from('customer_ledger_balances').select('id,current_balance').in('id', ids),
+    ]);
 
-    if (error) {
+    if (legacyResult.error || ledgerResult.error) {
+      const detail = legacyResult.error?.message || ledgerResult.error?.message || 'Unknown balance-view error';
       return {
-        rows: base.map((customer) => ({ ...customer, current_due: Number.NaN })) as Customer[],
-        error: 'Customer names loaded, but balances could not be verified. Refresh before recording a bill or payment. ' + error.message,
+        rows: base.map((customer) => ({ ...customer, current_due: Number.NaN, current_balance: Number.NaN, current_advance: Number.NaN })) as Customer[],
+        error: 'Customer balances could not be verified. Refresh before recording a bill or payment. ' + detail,
         balancesReady: false,
       };
     }
 
-    (data || []).forEach((balance: any) => {
-      balanceById.set(balance.id, Number(balance.current_due || 0));
+    const signedById = new Map<string, number>();
+    (ledgerResult.data || []).forEach((balance: any) => {
+      signedById.set(balance.id, Number(balance.current_balance));
+    });
+    (legacyResult.data || []).forEach((balance: any) => {
+      const currentBalance = signedById.get(balance.id);
+      if (currentBalance !== undefined) {
+        balancesById.set(balance.id, {
+          current_due: Number(balance.current_due || 0),
+          current_balance: currentBalance,
+        });
+      }
     });
   }
 
-  const missingBalances = base.filter((customer) => !balanceById.has(customer.id));
+  const missingBalances = base.filter((customer) => !balancesById.has(customer.id));
   if (missingBalances.length) {
     return {
-      rows: base.map((customer) => ({ ...customer, current_due: Number.NaN })) as Customer[],
-      error: 'Loaded all customer names, but the balance view returned no balance for ' + missingBalances.length + ' customer(s). No bill or payment will be saved until balances can be verified.',
+      rows: base.map((customer) => ({ ...customer, current_due: Number.NaN, current_balance: Number.NaN, current_advance: Number.NaN })) as Customer[],
+      error: 'The balance views returned no verified balance for ' + missingBalances.length + ' customer(s). No bill or payment will be saved until balances can be verified.',
+      balancesReady: false,
+    };
+  }
+
+  const mismatched = base.filter((customer) => {
+    const balance = balancesById.get(customer.id)!;
+    return !Number.isFinite(balance.current_balance)
+      || !Number.isFinite(balance.current_due)
+      || Math.abs(balance.current_due - Math.max(balance.current_balance, 0)) > 0.01;
+  });
+  if (mismatched.length) {
+    return {
+      rows: base.map((customer) => ({ ...customer, current_due: Number.NaN, current_balance: Number.NaN, current_advance: Number.NaN })) as Customer[],
+      error: 'The ledger balance and legacy due view do not match for ' + mismatched.length + ' customer(s). Refresh and reconcile before recording transactions.',
       balancesReady: false,
     };
   }
 
   return {
-    rows: base.map((customer) => ({
-      ...customer,
-      current_due: balanceById.get(customer.id) ?? 0,
-    })) as Customer[],
+    rows: base.map((customer) => {
+      const balance = balancesById.get(customer.id)!;
+      return {
+        ...customer,
+        current_due: balance.current_due,
+        current_balance: balance.current_balance,
+        current_advance: Math.max(-balance.current_balance, 0),
+      };
+    }) as Customer[],
     error: null,
     balancesReady: true,
   };
@@ -507,7 +542,7 @@ function CustomerPicker({customers,value,onChange,placeholder}:{customers:Custom
   </div>;
 }
 
-function NewBill({onDone}:{onDone:()=>void}){const [customers,setCustomers]=useState<Customer[]>([]);const [customerId,setCustomerId]=useState('');const [items,setItems]=useState<Item[]>([{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}]);const [paid,setPaid]=useState('0');const [method,setMethod]=useState('Cash');const [description,setDescription]=useState('');const [saving,setSaving]=useState(false);const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);useEffect(()=>{let active=true;(async()=>{const result=await fetchCustomerRecords();if(!active)return;setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)})();return()=>{active=false}},[]);const c=customers.find(x=>x.id===customerId);const subtotal=useMemo(()=>items.reduce((s,i)=>s+(Number(i.amount)||0),0),[items]);const total=Math.max(Number(c?.current_due||0)+subtotal-(Number(paid)||0),0);function upd(i:number,k:keyof Item,v:string){setItems(a=>a.map((x,n)=>n===i?{...x,[k]:v}:x))}async function save(){if(!customerId||subtotal<=0||!balancesReady||saving)return;setSaving(true);const {data,error}=await supabase.rpc('create_bill',{p_customer_id:customerId,p_bill_date:new Date().toISOString().slice(0,10),p_items:items.map(x=>({...x,amount:Number(x.amount)})),p_paid_now:Number(paid)||0,p_payment_method:method,p_notes:description.trim()||null});setSaving(false);if(error){alert(error.message);return}setDone({...data,description:description.trim()});onDone()}if(done)return <div className='card mx-auto max-w-xl p-8 text-center'><div className='mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600'>✓</div><h1 className='mt-5 text-2xl font-black'>Bill saved</h1><p className='mt-2 text-slate-500'>Bill <b>{done.bill_no}</b> created successfully.</p>{done.description&&<p className='mx-auto mt-3 max-w-lg rounded-xl bg-sky-50 px-4 py-3 text-left text-sm text-sky-900'><b className='block text-[10px] uppercase tracking-wider text-sky-700'>Description</b><span className='mt-1 block whitespace-pre-wrap'>{done.description}</span></p>}<div className='mt-6 grid grid-cols-2 gap-3 text-left'><div className='rounded-xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Today's Bill</p><p className='mt-1 text-xl font-black'>₹ {subtotal.toLocaleString('en-IN')}</p></div><div className='rounded-xl bg-orange-50 p-4'><p className='text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-xl font-black text-brand-orange'>₹ {Number(done.total_due).toLocaleString('en-IN')}</p></div></div><div className='mt-6'><BillPdfActions data={{billNo:done.bill_no,billDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,description:done.description||null,previousDue:Number(done.previous_due||0),subtotal:Number(done.subtotal||subtotal),paidNow:Number(done.paid_now||paid||0),totalDue:Number(done.total_due||0),items:items.map(x=>({...x,amount:Number(x.amount||0)}))}}/></div><button onClick={()=>{setDone(null);setDescription('')}} className='btn btn-primary mt-4'>Create another bill</button></div>;return <><Head title='New Bill' sub='Add passengers and ticket amounts. Previous due is automatic.'/><div className='mt-6 grid gap-6 xl:grid-cols-[1fr_360px]'><div className='space-y-5'><div className='card p-5'><label className='label'>Customer</label><CustomerPicker customers={customers} value={customerId} onChange={setCustomerId} placeholder='Select customer'/>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}{!customers.length&&!customerError&&<p className='mt-2 text-xs text-slate-500'>No customers available yet. Add a customer first.</p>}{c&&<div className='mt-3 rounded-xl bg-orange-50 p-4 text-sm'><span className='text-slate-500'>Previous due</span><strong className='float-right text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</strong></div>}</div><div className='card p-5'><div><label className='label'>Description</label><textarea className='field min-h-24' value={description} maxLength={300} onChange={e=>setDescription(e.target.value)} placeholder='Overall bill details, booking purpose, reference or extra instructions…'/><p className='mt-1 text-xs text-slate-400'>Optional · shown on the bill PDF and customer statement.</p></div></div><div className='card p-5'><div className='mb-4 flex items-center justify-between'><h2 className='font-black'>Booking details</h2><button onClick={()=>setItems(a=>[...a,{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}])} className='btn btn-secondary'><Plus size={16}/> Add passenger</button></div><div className='space-y-4'>{items.map((it,i)=><div key={i} className='rounded-2xl border border-slate-200 p-4'><div className='mb-4 flex items-center justify-between'><span className='text-xs font-black uppercase tracking-widest text-brand-blue'>Passenger {i+1}</span>{items.length>1&&<button onClick={()=>setItems(a=>a.filter((_,n)=>n!==i))} className='text-slate-400'><Trash2 size={16}/></button>}</div><div className='grid gap-3 md:grid-cols-2'><div><label className='label'>Passenger name</label><input className='field' value={it.passenger_name} onChange={e=>upd(i,'passenger_name',e.target.value)} placeholder='Asim'/></div><div><label className='label'>Flight date</label><input className='field' type='date' value={it.travel_date} onChange={e=>upd(i,'travel_date',e.target.value)}/></div><div><label className='label'>Service</label><select className='field' value={it.service_type} onChange={e=>upd(i,'service_type',e.target.value)}><option>Flight Ticket</option><option>Bus Ticket</option><option>Hotel Booking</option><option>Visa Processing</option><option>Tour Package</option><option>Other</option></select></div><div><label className='label'>Amount</label><input className='field' type='number' min='0' value={it.amount} onChange={e=>upd(i,'amount',e.target.value)} placeholder='5000'/></div><div className='md:col-span-2'><label className='label'>Details</label><input className='field' value={it.details} onChange={e=>upd(i,'details',e.target.value)} placeholder='Airline / route / PNR'/></div></div></div>)}</div></div></div><aside className='card h-fit p-5 xl:sticky xl:top-24'><h2 className='font-black'>Bill summary</h2><div className='mt-5 space-y-4 text-sm'><div className='flex justify-between'><span className='text-slate-500'>Previous Due</span><b>₹ {Number(c?.current_due||0).toLocaleString('en-IN')}</b></div><div className='flex justify-between'><span className='text-slate-500'>Today's Bill</span><b>₹ {subtotal.toLocaleString('en-IN')}</b></div><div><label className='label'>Payment now</label><input className='field' type='number' min='0' value={paid} onChange={e=>setPaid(e.target.value)}/></div>{Number(paid)>0&&<div><label className='label'>Payment method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>}<div className='rounded-2xl bg-brand-ink p-4 text-white'><div className='text-xs text-slate-300'>Remaining Due</div><div className='mt-1 text-3xl font-black'>₹ {total.toLocaleString('en-IN')}</div></div><button disabled={saving||!customerId||subtotal<=0||!balancesReady} onClick={save} className='btn btn-primary w-full'><Save size={17}/>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Bill'}</button></div></aside></div></>}
+function NewBill({onDone}:{onDone:()=>void}){const [customers,setCustomers]=useState<Customer[]>([]);const [customerId,setCustomerId]=useState('');const [items,setItems]=useState<Item[]>([{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}]);const [paid,setPaid]=useState('0');const [method,setMethod]=useState('Cash');const [description,setDescription]=useState('');const [saving,setSaving]=useState(false);const [requestKey,setRequestKey]=useState('');const [done,setDone]=useState<any>(null);const [customerError,setCustomerError]=useState<string|null>(null);const [balancesReady,setBalancesReady]=useState(false);useEffect(()=>{let active=true;setRequestKey(createIdempotencyKey());(async()=>{const result=await fetchCustomerRecords();if(!active)return;setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady)})();return()=>{active=false}},[]);const c=customers.find(x=>x.id===customerId);const subtotal=useMemo(()=>items.reduce((s,i)=>s+(Number(i.amount)||0),0),[items]);const signedBalance=Number(c?.current_balance??c?.current_due??0);const projectedBalance=signedBalance+subtotal-(Number(paid)||0);const total=Math.max(projectedBalance,0);const projectedAdvance=Math.max(-projectedBalance,0);function upd(i:number,k:keyof Item,v:string){setItems(a=>a.map((x,n)=>n===i?{...x,[k]:v}:x))}async function save(){if(!customerId||subtotal<=0||!balancesReady||saving||!requestKey)return;setSaving(true);const {data,error}=await supabase.rpc('create_bill',{p_customer_id:customerId,p_bill_date:new Date().toISOString().slice(0,10),p_items:items.map(x=>({...x,amount:Number(x.amount)})),p_paid_now:Number(paid)||0,p_payment_method:method,p_notes:description.trim()||null,p_idempotency_key:requestKey});setSaving(false);if(error){alert(error.message);return}setRequestKey(createIdempotencyKey());setDone({...data,description:description.trim()});onDone()}if(done)return <div className='card mx-auto max-w-xl p-8 text-center'><div className='mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600'>✓</div><h1 className='mt-5 text-2xl font-black'>Bill saved</h1><p className='mt-2 text-slate-500'>Bill <b>{done.bill_no}</b> created successfully.</p>{done.description&&<p className='mx-auto mt-3 max-w-lg rounded-xl bg-sky-50 px-4 py-3 text-left text-sm text-sky-900'><b className='block text-[10px] uppercase tracking-wider text-sky-700'>Description</b><span className='mt-1 block whitespace-pre-wrap'>{done.description}</span></p>}<div className='mt-6 grid grid-cols-2 gap-3 text-left'><div className='rounded-xl bg-slate-50 p-4'><p className='text-xs text-slate-400'>Today's Bill</p><p className='mt-1 text-xl font-black'>₹ {subtotal.toLocaleString('en-IN')}</p></div><div className='rounded-xl bg-orange-50 p-4'><p className='text-xs text-slate-400'>Remaining Due</p><p className='mt-1 text-xl font-black text-brand-orange'>₹ {Number(done.total_due).toLocaleString('en-IN')}</p></div>{Number(done.advance_amount||0)>0&&<div className='col-span-2 rounded-xl bg-emerald-50 p-4'><p className='text-xs text-emerald-700'>Customer Advance</p><p className='mt-1 text-xl font-black text-emerald-800'>₹ {Number(done.advance_amount).toLocaleString('en-IN')}</p></div>}</div><div className='mt-6'><BillPdfActions data={{billNo:done.bill_no,billDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,description:done.description||null,previousDue:Number(done.previous_due||0),subtotal:Number(done.subtotal||subtotal),paidNow:Number(done.paid_now||paid||0),totalDue:Number(done.total_due||0),items:items.map(x=>({...x,amount:Number(x.amount||0)}))}}/></div><button onClick={()=>{setDone(null);setDescription('')}} className='btn btn-primary mt-4'>Create another bill</button></div>;return <><Head title='New Bill' sub='Add passengers and ticket amounts. Previous due is automatic.'/><div className='mt-6 grid gap-6 xl:grid-cols-[1fr_360px]'><div className='space-y-5'><div className='card p-5'><label className='label'>Customer</label><CustomerPicker customers={customers} value={customerId} onChange={setCustomerId} placeholder='Select customer'/>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}{!customers.length&&!customerError&&<p className='mt-2 text-xs text-slate-500'>No customers available yet. Add a customer first.</p>}{c&&<div className='mt-3 rounded-xl bg-orange-50 p-4 text-sm'><span className='text-slate-500'>Previous due</span><strong className='float-right text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</strong>{Number(c.current_advance)>0&&<p className='mt-2 text-xs leading-5 text-emerald-800'>Existing customer advance: ₹ {Number(c.current_advance).toLocaleString('en-IN')}. It will be applied to outstanding bills first.</p>}</div>}</div><div className='card p-5'><div><label className='label'>Description</label><textarea className='field min-h-24' value={description} maxLength={300} onChange={e=>setDescription(e.target.value)} placeholder='Overall bill details, booking purpose, reference or extra instructions…'/><p className='mt-1 text-xs text-slate-400'>Optional · shown on the bill PDF and customer statement.</p></div></div><div className='card p-5'><div className='mb-4 flex items-center justify-between'><h2 className='font-black'>Booking details</h2><button onClick={()=>setItems(a=>[...a,{passenger_name:'',travel_date:'',service_type:'Flight Ticket',details:'',amount:''}])} className='btn btn-secondary'><Plus size={16}/> Add passenger</button></div><div className='space-y-4'>{items.map((it,i)=><div key={i} className='rounded-2xl border border-slate-200 p-4'><div className='mb-4 flex items-center justify-between'><span className='text-xs font-black uppercase tracking-widest text-brand-blue'>Passenger {i+1}</span>{items.length>1&&<button onClick={()=>setItems(a=>a.filter((_,n)=>n!==i))} className='text-slate-400'><Trash2 size={16}/></button>}</div><div className='grid gap-3 md:grid-cols-2'><div><label className='label'>Passenger name</label><input className='field' value={it.passenger_name} onChange={e=>upd(i,'passenger_name',e.target.value)} placeholder='Asim'/></div><div><label className='label'>Flight date</label><input className='field' type='date' value={it.travel_date} onChange={e=>upd(i,'travel_date',e.target.value)}/></div><div><label className='label'>Service</label><select className='field' value={it.service_type} onChange={e=>upd(i,'service_type',e.target.value)}><option>Flight Ticket</option><option>Bus Ticket</option><option>Hotel Booking</option><option>Visa Processing</option><option>Tour Package</option><option>Other</option></select></div><div><label className='label'>Amount</label><input className='field' type='number' min='0' value={it.amount} onChange={e=>upd(i,'amount',e.target.value)} placeholder='5000'/></div><div className='md:col-span-2'><label className='label'>Details</label><input className='field' value={it.details} onChange={e=>upd(i,'details',e.target.value)} placeholder='Airline / route / PNR'/></div></div></div>)}</div></div></div><aside className='card h-fit p-5 xl:sticky xl:top-24'><h2 className='font-black'>Bill summary</h2><div className='mt-5 space-y-4 text-sm'><div className='flex justify-between'><span className='text-slate-500'>Previous Due</span><b>₹ {Number(c?.current_due||0).toLocaleString('en-IN')}</b></div><div className='flex justify-between'><span className='text-slate-500'>Today's Bill</span><b>₹ {subtotal.toLocaleString('en-IN')}</b></div><div><label className='label'>Payment now</label><input className='field' type='number' min='0' value={paid} onChange={e=>setPaid(e.target.value)}/></div>{Number(paid)>0&&<div><label className='label'>Payment method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>}<div className='rounded-2xl bg-brand-ink p-4 text-white'><div className='text-xs text-slate-300'>Remaining Due</div><div className='mt-1 text-3xl font-black'>₹ {total.toLocaleString('en-IN')}</div>{projectedAdvance>0&&<div className='mt-3 border-t border-white/15 pt-3'><div className='text-xs text-emerald-200'>Advance after this bill</div><div className='mt-1 text-lg font-black'>₹ {projectedAdvance.toLocaleString('en-IN')}</div></div>}</div><button disabled={saving||!requestKey||!customerId||subtotal<=0||!balancesReady} onClick={save} className='btn btn-primary w-full'><Save size={17}/>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Bill'}</button></div></aside></div></>}
 
 function Payments(){
  const [customers,setCustomers]=useState<Customer[]>([]);
@@ -519,27 +554,30 @@ function Payments(){
  const [customerError,setCustomerError]=useState<string|null>(null);
  const [balancesReady,setBalancesReady]=useState(false);
  const [saving,setSaving]=useState(false);
+ const [requestKey,setRequestKey]=useState('');
  async function load(){
   const result=await fetchCustomerRecords();
   setCustomers(result.rows);setCustomerError(result.error);setBalancesReady(result.balancesReady);
  }
- useEffect(()=>{void load()},[]);
+ useEffect(()=>{setRequestKey(createIdempotencyKey());void load()},[]);
  const c=customers.find(x=>x.id===id);
  async function save(e:React.FormEvent){
   e.preventDefault();
-  if(!balancesReady||saving||!id)return;
+  if(!balancesReady||saving||!id||!requestKey)return;
   setSaving(true);
   const {data,error}=await supabase.rpc('record_payment',{
    p_customer_id:id,
    p_payment_date:new Date().toISOString().slice(0,10),
    p_amount:Number(amount),
    p_payment_method:method,
-   p_notes:description.trim()||null
+   p_notes:description.trim()||null,
+   p_idempotency_key:requestKey
   });
   setSaving(false);
   if(error){alert(error.message);return}
   // Keep the description with the success receipt before clearing the input.
   setDone({...data,description:description.trim()});
+  setRequestKey(createIdempotencyKey());
   setAmount('');
   setDescription('');
   void load();
@@ -554,21 +592,22 @@ function Payments(){
    <p className='mt-1 text-3xl font-black'>₹ {Number(done.paid).toLocaleString('en-IN')}</p>
    <p className='mt-4 text-xs text-slate-400'>Remaining Due</p>
    <p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p>
+   {Number(done.advance_amount||0)>0&&<><p className='mt-4 text-xs text-emerald-700'>Customer Advance</p><p className='mt-1 text-2xl font-black text-emerald-700'>₹ {Number(done.advance_amount).toLocaleString('en-IN')}</p></>}
   </div>
-  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),note:done.description||null}}/></div>
+  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),advanceAmount:Number(done.advance_amount||0),note:done.description||null}}/></div>
   <button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button>
  </div>;
  return <>
   <Head title='Add Payment' sub='Record a payment and update the running due instantly.'/>
   <form onSubmit={save} className='card mt-6 max-w-xl space-y-5 p-5 sm:p-6'>
    <div><label className='label'>Customer</label><CustomerPicker customers={customers} value={id} onChange={setId} placeholder='Select customer for payment'/>{customerError&&<div role='alert' className='mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900'>{customerError}</div>}</div>
-   {c&&<div className='rounded-2xl bg-orange-50 p-4'><span className='text-sm text-slate-500'>Current due</span><b className='float-right text-lg text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div>}
-   <div><label className='label'>Payment amount</label><input className='field' type='number' min='1' max={c?.current_due||undefined} value={amount} onChange={e=>setAmount(e.target.value)} required/>
-    {c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_due||0)-Number(amount||0),0).toLocaleString('en-IN')}</b></div></div>}
+   {c&&<div className='rounded-2xl bg-orange-50 p-4'><span className='text-sm text-slate-500'>Current due</span><b className='float-right text-lg text-brand-orange'>₹ {Number(c.current_due).toLocaleString('en-IN')}</b>{Number(c.current_advance)>0&&<p className='mt-2 text-xs leading-5 text-emerald-800'>Existing advance: ₹ {Number(c.current_advance).toLocaleString('en-IN')}. A new payment adds to the advance unless a due is created.</p>}</div>}
+   <div><label className='label'>Payment amount</label><input className='field' type='number' min='0.01' step='0.01' value={amount} onChange={e=>setAmount(e.target.value)} required/>
+    {c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_balance??c.current_due)-Number(amount||0),0).toLocaleString('en-IN')}</b></div>{Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0)>0&&<div className='mt-3 flex justify-between rounded-xl bg-emerald-50 p-3'><span className='text-sm font-bold text-emerald-800'>Advance after payment</span><b className='text-lg text-emerald-800'>₹ {Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0).toLocaleString('en-IN')}</b></div>}</div>}
    </div>
    <div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>
    <div><label className='label'>Description</label><textarea className='field min-h-24' value={description} maxLength={250} onChange={e=>setDescription(e.target.value)} placeholder='Payment details, UPI / bank reference, or reason for payment…'/><p className='mt-1 text-xs text-slate-400'>Optional · saved with the payment and shown on the receipt and statement.</p></div>
-   <button className='btn btn-primary w-full' disabled={saving||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button>
+   <button className='btn btn-primary w-full' disabled={saving||!requestKey||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button>
   </form>
  </>;
 }
