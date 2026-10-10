@@ -35,6 +35,7 @@ The migration completed successfully, then `supabase/tests/accounting_core_recon
 | Retrying `record_payment` with the same idempotency key returns the same response and inserts one payment | PASS |
 | Reusing a payment idempotency key with a different request is rejected | PASS |
 | New `create_bill` with overpayment returns zero due and a signed negative advance | PASS |
+| RPC reports the existing advance applied to the new bill separately from leftover advance | PASS |
 | Retrying `create_bill` with the same idempotency key returns the same response and inserts one bill | PASS |
 | Existing advance is applied to a later bill using FIFO allocation | PASS |
 
@@ -48,6 +49,7 @@ The migration completed successfully, then `supabase/tests/accounting_core_recon
 - Advance idempotency test: a prior ₹50 advance was applied to an ₹80 bill, leaving ₹30 due; retry generated no second bill.
 - Overpayment test: a customer with a ₹30 credit balance received a new ₹10 bill with ₹1,000 paid-now. RPC response reconciled to ₹0 due, signed balance −₹960, and customer advance ₹960; it created one bill only.
 - Different-request retry test: reusing the ₹500 payment's idempotency key for a ₹501 payment was rejected.
+- Exact advance-applied test: existing signed balance −₹50 followed by a new ₹80 bill returned `advance_applied=₹50`, `total_due=₹30`, and `advance_amount=₹0`.
 
 ## Important limitations
 
