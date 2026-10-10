@@ -106,6 +106,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     data.subtotal.toLocaleString('en-IN') +
     '\nTotal Due: INR ' +
     data.totalDue.toLocaleString('en-IN') +
+    (Number(data.advanceAmount||0)>0 ? '\nCustomer Advance: INR ' + Number(data.advanceAmount).toLocaleString('en-IN') : '') +
     (data.description ? '\nDescription: ' + data.description : '') +
     '\nPlease find the bill attached.';
 
@@ -306,6 +307,7 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
     data.amount.toLocaleString('en-IN') +
     '\nRemaining Due: INR ' +
     data.remainingDue.toLocaleString('en-IN') +
+    (Number(data.advanceAmount||0)>0 ? '\nCustomer Advance: INR ' + Number(data.advanceAmount).toLocaleString('en-IN') : '') +
     (data.note ? '\nDescription: ' + data.note : '') +
     '\nPlease find the receipt attached.';
 
