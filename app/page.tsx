@@ -574,6 +574,7 @@ function Payments(){
  const [customers,setCustomers]=useState<Customer[]>([]);
  const [id,setId]=useState('');
  const [amount,setAmount]=useState('');
+ const [paymentDate,setPaymentDate]=useState(()=>{const today=new Date();return today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0')});
  const [method,setMethod]=useState('Cash');
  const [description,setDescription]=useState('');
  const [done,setDone]=useState<any>(null);
@@ -593,7 +594,7 @@ function Payments(){
   setSaving(true);
   const {data,error}=await supabase.rpc('record_payment',{
    p_customer_id:id,
-   p_payment_date:new Date().toISOString().slice(0,10),
+   p_payment_date:paymentDate,
    p_amount:Number(amount),
    p_payment_method:method,
    p_notes:description.trim()||null,
@@ -602,7 +603,7 @@ function Payments(){
   setSaving(false);
   if(error){alert(error.message);return}
   // Keep the description with the success receipt before clearing the input.
-  setDone({...data,description:description.trim()});
+  setDone({...data,description:description.trim(),paymentDate,method});
   setRequestKey(createIdempotencyKey());
   setAmount('');
   setDescription('');
@@ -612,6 +613,7 @@ function Payments(){
   <WalletCards className='mx-auto text-brand-blue' size={40}/>
   <h1 className='mt-4 text-2xl font-black'>Payment recorded</h1>
   <p className='mt-2 text-slate-500'>{done.payment_no}</p>
+  <p className='mt-1 text-sm text-slate-500'>Payment date: {new Date((done.paymentDate||paymentDate)+'T00:00:00').toLocaleDateString('en-GB')}</p>
   {done.description&&<div className='mt-4 rounded-xl bg-sky-50 p-4 text-left text-sm text-sky-900'><p className='text-[10px] font-black uppercase tracking-wider text-sky-700'>Description</p><p className='mt-1 whitespace-pre-wrap'>{done.description}</p></div>}
   <div className='mt-6 rounded-2xl bg-slate-50 p-5'>
    <p className='text-xs text-slate-400'>Received</p>
@@ -620,7 +622,7 @@ function Payments(){
    <p className='mt-1 text-2xl font-black text-brand-orange'>₹ {Number(done.remaining_due).toLocaleString('en-IN')}</p>
    {Number(done.advance_amount||0)>0&&<><p className='mt-4 text-xs text-emerald-700'>Customer Advance</p><p className='mt-1 text-2xl font-black text-emerald-700'>₹ {Number(done.advance_amount).toLocaleString('en-IN')}</p></>}
   </div>
-  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:new Date().toISOString().slice(0,10),customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),advanceAmount:Number(done.advance_amount||0),note:done.description||null}}/></div>
+  <div className='mt-6'><PaymentPdfActions data={{paymentNo:done.payment_no,paymentDate:done.paymentDate||paymentDate,customerName:c?.name||'Customer',customerPhone:c?.phone,customerAddress:c?.address,amount:Number(done.paid||amount||0),method:done.method||method,previousDue:Number(done.previous_due||0),remainingDue:Number(done.remaining_due||0),advanceAmount:Number(done.advance_amount||0),note:done.description||null}}/></div>
   <button onClick={()=>setDone(null)} className='btn btn-primary mt-4'>Record another payment</button>
  </div>;
  return <>
@@ -631,6 +633,7 @@ function Payments(){
    <div><label className='label'>Payment amount</label><input className='field' type='number' min='0.01' step='0.01' value={amount} onChange={e=>setAmount(e.target.value)} required/>
     {c&&<div className='mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4'><div className='flex justify-between text-sm'><span className='text-slate-500'>Current Due</span><b>₹ {Number(c.current_due).toLocaleString('en-IN')}</b></div><div className='mt-2 flex justify-between text-sm'><span className='text-slate-500'>Payment</span><b className='text-emerald-600'>− ₹ {Number(amount||0).toLocaleString('en-IN')}</b></div><div className='my-3 border-t border-slate-200'></div><div className='flex justify-between'><span className='font-bold'>Remaining Due</span><b className='text-lg text-brand-orange'>₹ {Math.max(Number(c.current_balance??c.current_due)-Number(amount||0),0).toLocaleString('en-IN')}</b></div>{Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0)>0&&<div className='mt-3 flex justify-between rounded-xl bg-emerald-50 p-3'><span className='text-sm font-bold text-emerald-800'>Advance after payment</span><b className='text-lg text-emerald-800'>₹ {Math.max(Number(amount||0)-Number(c.current_balance??c.current_due),0).toLocaleString('en-IN')}</b></div>}</div>}
    </div>
+   <div><label className='label' htmlFor='payment-date'>Payment date</label><input id='payment-date' className='field' type='date' value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} required/><p className='mt-1 text-xs text-slate-400'>Choose the date the payment was actually received. This date is saved in the ledger and receipt.</p></div>
    <div><label className='label'>Method</label><select className='field' value={method} onChange={e=>setMethod(e.target.value)}><option>Cash</option><option>Bank</option><option>bKash</option><option>Nagad</option><option>Other</option></select></div>
    <div><label className='label'>Description</label><textarea className='field min-h-24' value={description} maxLength={250} onChange={e=>setDescription(e.target.value)} placeholder='Payment details, UPI / bank reference, or reason for payment…'/><p className='mt-1 text-xs text-slate-400'>Optional · saved with the payment and shown on the receipt and statement.</p></div>
    <button className='btn btn-primary w-full' disabled={saving||!requestKey||!id||!balancesReady||Number(amount)<=0}>{saving?'Saving…':!balancesReady?'Checking customer balances…':'Save Payment'}</button>
