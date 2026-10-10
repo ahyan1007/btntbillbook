@@ -45,19 +45,33 @@ The live `customers` table also has `customers_delete_own` alongside `customers_
 ## Current rollout status and safety rules
 
 1. The migration history discrepancy for `20261009154500` is resolved.
-2. The CLI list still shows `20261010100000` and `20261010120000` as local versions not applied remotely. **Do not run `supabase db push` against Production yet.**
+2. The CLI list showed `20261010100000` and `20261010120000` as local versions not applied remotely. **Do not run `supabase db push` against Production yet.**
 3. Do not mark the accounting migrations as applied manually. `20261010100000_accounting_core_foundation.sql` and `20261010120000_advance_payment_and_allocation.sql` contain real schema, trigger, backfill, and RPC changes and remain pending on Production.
 4. Do not fabricate or split the seven historical migration files from the current schema; their original sequence is not present in this repository.
 5. Review and test subsequent migrations against an isolated non-production database, complete the separate DELETE-policy review, and use a production change checklist before approving any accounting rollout.
 
 The CLI behavior was checked in the v2.115.0 source: [migration repair command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.command.ts), [migration repair handler](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.handler.ts), and [migration list command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/list/list.command.ts). Official guidance: [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations) and [CLI migration repair](https://supabase.com/docs/reference/cli/supabase-migration-repair).
 
-## Accounting core rollout guardrails
+## Accounting core rollout guardrails and test status
 
 The accounting foundation migration creates the ledger, allocation, and idempotency tables; installs posting/validation triggers; backfills existing financial records into the ledger; and creates a signed-balance view. The follow-on migration adds advance-payment and allocation RPC behavior. Both migrations have been tested on the separate isolated project `btntbillbook-accounting-test`; neither has been applied to Production.
 
-Keep the current UI on `customer_balances` until the advance/payment-allocation RPC and UI phase is completed and reviewed. The new `customer_ledger_balances` view is prepared for the signed-balance model; switching UI behavior early would be misleading because the legacy payment RPC rejects overpayment.
+On 2026-10-10, after test-project RLS was enabled, these read-only and transactional checks passed:
 
-## Separate test-project security finding
+- Read-only ledger reconciliation checked five customers, ten bills, six payments, eighteen ledger entries, and nine allocations with zero mismatch between legacy due and signed-ledger-derived due.
+- Under a simulated authenticated admin JWT context, the RLS policies exposed the admin's owned rows (five customers, ten bills, eleven bill items, six payments). A different admin context saw zero customer, bill, bill-item, and payment rows. The `authenticated` role has no SELECT table privilege on `financial_operation_keys`.
+- A transactional smoke test confirmed authenticated admin execution of `create_bill` and `record_payment`, idempotent retries returned matching responses without duplicate bills/payments, and each source produced exactly one ledger posting. The test transaction was rolled back.
+- A transactional FIFO/advance test passed: a 150 payment against a 100 bill allocated 100 to the first bill and left 50 advance; a 30 next bill consumed 30 of advance and carried 20; a 25 third bill consumed the final 20 and left 5 due. It ran in a transaction that included `ROLLBACK`.
 
-In `btntbillbook-accounting-test`, RLS is disabled on `public.admin_users`, `public.customers`, `public.bills`, `public.bill_items`, and `public.payments`. Do not enable RLS without first creating and reviewing the correct policies, because the app may lose access. No RLS policy changes were made during Production migration reconciliation.
+### Test-project RLS policy status
+
+RLS is now enabled on all five legacy core tables in `btntbillbook-accounting-test`: `admin_users`, `customers`, `bills`, `bill_items`, and `payments`. Policies restrict access to the authenticated admin's own account and bill ownership. Do not disable RLS. The test-project changes were applied from Supabase SQL Editor, not yet captured in a dedicated repo migration.
+
+Post-test verification showed `all_core_tables_rls_enabled = true`, no leftover `__RLS_FIFO_ROLLBACK_TEST__` customer, and unchanged totals of ten bills, six payments, eighteen ledger entries, and nine allocations. However, the customers count was four on this final direct read, while an earlier exact admin-context check returned five. The four currently listed synthetic customers account for all ten bills, six payments, and eighteen ledger entries. A narrow Postgres-log search did not show an explicit customer DELETE statement, but that does not establish the cause of this customer-count discrepancy. **Pause further test-data mutations until the test project’s customer count discrepancy is explained.** No Production tables were modified.
+
+The latest Supabase security advisor result no longer reports the five core tables as RLS-disabled. Remaining findings:
+- `financial_operation_keys` has RLS enabled and no policy, which is intentional for direct client isolation; the authenticated role has no SELECT privilege.
+- `create_bill` and `record_payment` are SECURITY DEFINER RPCs executable by `authenticated`. This is intended for the admin workflow; the code contains explicit authentication/admin checks and customer ownership checks, but should remain part of security review.
+- Leaked-password protection remains disabled in Supabase Auth and is a separate dashboard setting worth enabling.
+
+Keep the current UI on `customer_balances` until the advance/payment-allocation RPC and UI phase is completed and reviewed. Do not apply either accounting migration to Production yet.
