@@ -39,13 +39,18 @@ The live `customers` table also has `customers_delete_own` alongside `customers_
 ## Safe reconciliation procedure
 
 1. **Do not run `supabase db push` against production yet.** The unregistered `20261009154500` migration is earlier than the new accounting migration and may be treated as pending.
-2. The SQL effects of the untracked migration have now been checked against live columns, index definition, and DELETE-policy predicate as recorded above.
-3. The current linked-project migration list still contains only the seven versions above; save a fresh `supabase migration list` output before release.
-4. The intended CLI history repair is `supabase migration repair 20261009154500 --status applied --linked`. It changes migration tracking only; it does **not** apply SQL. Use the Supabase CLI against the linked production project in a controlled session. Do not manually edit Supabase's internal migration registry table using ad hoc SQL. This workflow has not performed that repair because the available database connector exposes list/apply/SQL actions but not the CLI `migration repair` operation.
-5. Create and review a verified schema baseline from the live database and retain the seven already-applied version records. Do not invent or split historical migration files from the current end-state schema, since that would falsely imply the original changes were reproduced in order.
-6. Review and test all subsequent migrations on an isolated non-production database before any production migration is approved.
+2. The SQL effects of the untracked migration have been checked against live columns, index definition, and DELETE-policy predicate as recorded above.
+3. The latest connected Supabase migration list still contains only the seven versions above. The local CLI should re-check the list immediately before repair.
+4. The user's installed Supabase CLI `2.115.0` supports `--db-url` on both `migration list` and `migration repair`. The attempted `supabase link --project-ref sawxcpwyehrbfmhsiqaf` fails with a Management API permission error, so **bypass linking** and connect directly to the production Postgres URL:
+   - From a checked-out copy of this repository, set `SUPABASE_DB_URL` in the shell to the database connection URI from the Supabase Dashboard's Connect panel. Do not paste that credential into chat or commit it. Confirm the URI points to project `sawxcpwyehrbfmhsiqaf` (host `db.sawxcpwyehrbfmhsiqaf.supabase.co`).
+   - Run `supabase migration list --db-url "$SUPABASE_DB_URL"` and confirm the target database lists the same seven applied versions and does not list `20261009154500` as applied.
+   - Then run exactly `supabase migration repair 20261009154500 --status applied --db-url "$SUPABASE_DB_URL"`.
+   - Run `supabase migration list --db-url "$SUPABASE_DB_URL"` again. Confirm `20261009154500` appears as applied and that the existing seven versions remain.
+   - This targeted CLI repair changes migration tracking only; it does **not** execute the migration SQL. Do not use `--linked` and `--db-url` together. Do not manually edit Supabase's internal migration registry table using ad hoc SQL.
+5. The repository file must exist locally at `supabase/migrations/20261009154500_customer_archive_and_delete.sql` before running repair. A clone/checkout is required because the CLI reads the file to determine its version, name and statement metadata. Do not fabricate or split the seven historical migration files from the current schema; their original sequence is not present in this repository.
+6. **Do not run `supabase db push` or apply `20261010100000_accounting_core_foundation.sql` to production as part of this repair.** Test and review subsequent migrations against an isolated non-production database first, and complete the separate DELETE-policy review before production accounting rollout.
 
-Official guidance: [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations) and [CLI migration repair](https://supabase.com/docs/reference/cli/supabase-migration-repair).
+The CLI behavior was checked in the v2.115.0 source: [migration repair command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.command.ts), [migration repair handler](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/repair/repair.handler.ts), and [migration list command](https://github.com/supabase/cli/blob/v2.115.0/apps/cli/src/legacy/commands/migration/list/list.command.ts). Official guidance: [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations) and [CLI migration repair](https://supabase.com/docs/reference/cli/supabase-migration-repair).
 
 ## Accounting core rollout guardrails
 
