@@ -1,70 +1,64 @@
-# Accounting core foundation
+# Accounting core and advance payments
 
 Branch: `feature/accounting-core-foundation`
 
-## Scope of this step
+## Release scope
 
-This is the first additive database foundation for the travel-agency bill book. The existing customer, bill, bill-item, and payment tables stay in place. The migration adds a normalized financial posting layer and allocation/idempotency structures for later RPC/UI work.
+This feature branch adds a normalized customer ledger and invoice allocations while leaving the current customer, bills, bill-item and payment tables in place. It includes a migration for advance handling and idempotent bill/payment RPCs, plus app forms, customer ledger, dashboard and PDF changes that display signed balances and advances.
 
-No migration has been applied to production by this change.
+**Neither migration has been applied to production.** SQL execution and financial test fixtures were confined to the separate `btntbillbook-accounting-test` project. See `docs/accounting-core-test-results-2026-10-10.md`.
 
 ## Accounting convention
 
-- A **debit** increases what the customer owes the agency.
-- A **credit** decreases receivables and can result in a customer advance.
-- A signed customer balance is `sum(debit) - sum(credit)`.
-- A positive signed balance is receivable/due.
-- A negative signed balance is money held as customer advance.
-- Allocation connects a credit posting to a bill; creating an allocation must not create another payment/credit posting.
+- Debit increases what the customer owes the agency.
+- Credit decreases receivables and may create a customer advance.
+- Signed balance = total debit − total credit.
+- Positive signed balance = due. Negative signed balance = customer advance.
+- A payment credit is posted once. Allocations connect that credit to a bill; allocations must not create another credit posting.
+- The allocation helper covers opening due first, then applies remaining credit to invoices FIFO by bill date/creation order. Existing partial allocations to an older invoice are completed before allocating the same credit to newer invoices.
+- `advance_applied` records how much existing credit was used by a new bill; `advance_amount` records any advance still left after the transaction.
 
-## Objects in the migration
+## Database objects
 
 ### `customer_ledger_entries`
 
-Append-oriented posting records for opening due/advance, bill, payment, refund, credit note, adjustment, and reversal. A posting has exactly one positive side (debit or credit). Source uniqueness prevents the same source bill/payment/opening balance from being backfilled twice.
-
-Existing positive customer opening balances, bills and payments are backfilled idempotently. Database triggers maintain corresponding ledger entries for subsequent customer opening-balance changes, bill inserts, and payment inserts. Existing source records are left unchanged.
+Append-oriented financial postings for opening balance, bills, payments, refunds, credit notes, adjustments and reversals. A posting has exactly one positive side. A unique source index prevents a source bill/payment/opening balance from being posted twice. Triggers post new opening balances, bills and payments; existing source transactions are backfilled idempotently.
 
 ### `invoice_allocations`
 
-Connects a bill to a customer credit posting. The validation trigger verifies that the bill and credit belong to the same customer/account and rejects allocation sums greater than either the credit source or bill subtotal. The table has no browser write policy; allocations must be made through a future narrow, authorized financial RPC.
+Connects a bill to a credit posting. The validation trigger ensures the bill and credit belong to the same account/customer and rejects allocation totals above the bill subtotal or source credit. Browser clients have read-only access filtered by RLS; direct client writes are revoked.
 
 ### `financial_operation_keys`
 
-Private idempotency registry for create-bill, record-payment, advance-allocation, and adjustment RPCs. The table is not directly accessible to browser roles. The next RPC/UI phase must actually use this registry and pass a stable request key; creating the table by itself does not deduplicate calls.
+Private idempotency registry for financial RPCs. The same key and same request returns the original JSON response; using an existing key for a different request is rejected. The table itself is not accessible to browser roles.
 
 ### `customer_ledger_balances`
 
-A read-only, `security_invoker` view that exposes debit total, credit total and signed current balance under underlying table RLS. The existing `customer_balances` view remains untouched for backward compatibility until the next step changes RPC and UI behavior together.
+Read-only `security_invoker` view exposing debit total, credit total and signed balance. The legacy `customer_balances` due view stays for compatibility and displays `greatest(signed balance, 0)`.
 
-## Implementation sequence after this foundation
+## RPC and UI behavior on the feature branch
 
-1. Verify and repair migration history (see `docs/database-migration-reconciliation.md`).
-2. Run this migration and tests in an isolated database; verify all existing ledger totals reconcile.
-3. Replace the existing payment RPC and UI together so overpayments become an unallocated advance instead of an error. Do not ship one without the other.
-4. Add idempotency behavior to both bill and payment RPCs and pass stable request keys from the UI.
-5. Implement advance-to-invoice allocation and display per-invoice outstanding separately from signed party balance.
-6. Add refund, reversal, and adjustment workflows with an audit trail.
-7. Only after all test gates pass, seek explicit approval for production migration/application deployment.
+- `create_bill` and `record_payment` accept an idempotency key and are granted only to authenticated clients, with a server-side admin/ownership check.
+- Overpayments are accepted in the RPC layer. Any credit beyond open receivables remains as customer advance.
+- Advance credit is allocated FIFO to invoices after first covering opening due.
+- New Bill shows advance applied and any leftover advance.
+- Payment form no longer blocks an amount above the due and previews the resulting advance.
+- Dashboard, customer picker/list, customer ledger and PDF/WhatsApp share text show advance information when applicable.
+- Party statement maintains a signed running balance; negative closing balances are labelled Customer Advance.
 
-## Required verification scenarios
+## Migration sequence and production gate
 
-The SQL migration must be exercised against representative test data, not merely accepted because the Next.js build passes:
+1. Production migration history has a known discrepancy: `20261009154500_customer_archive_and_delete.sql` effects are present but its version is not recorded in the live registry. See `docs/database-migration-reconciliation.md`.
+2. Accounting foundation: `supabase/migrations/20261010100000_accounting_core_foundation.sql`.
+3. Advance/allocation and idempotent RPCs: `supabase/migrations/20261010120000_advance_payment_and_allocation.sql`.
+4. Both migrations have been exercised in the isolated test project with synthetic data; see the test report.
+5. The latest Next.js Build Check and UI regression checks must pass before considering a merge. Preview must use a schema compatible with these migrations; deploying this UI against production before its schema is migrated will cause balance/RPC calls to fail closed.
+6. Migration history must be reconciled with the Supabase CLI (do not manually edit the internal migration registry). Review the overlapping customer DELETE policies.
+7. Production schema migration and production deployment require separate explicit approval. Do not merge/deploy as part of this test step.
 
-- Opening due + bill + payment reconciling to the existing current due.
-- Existing zero opening balances not producing zero-value ledger rows.
-- Inserting a bill and its items results in one bill posting, with the subtotal matching item sum.
-- A bill with payment-now results in one bill debit and one payment credit.
-- Repeated backfill creates no duplicate source entries.
-- Updating an opening balance before history updates the opening posting; the existing trigger blocks edits after bill/payment history.
-- A payment amount can be allocated across multiple bills without exceeding its credit source.
-- Combined allocations never exceed a bill subtotal.
-- Cross-customer or cross-account allocation is rejected.
-- Browser roles cannot directly insert/update/delete ledger postings or financial operation keys.
-- Unauthorized users cannot read other accounts' ledger entries or allocations.
-- Duplicate RPC retries with one idempotency key return the original result after the RPC implementation is added.
-- Signed balances match independently calculated expected balances, including a negative balance when an advance is present.
+## Remaining not in scope
 
-## Explicit limitations
-
-This foundation does not yet enable overpayments in the existing UI or make the existing `record_payment` RPC accept advances; that RPC currently rejects payments greater than current due. It also does not yet make the current statement UI allocation-aware. Those changes belong together in the next step and must not be enabled before that release.
+- Actual browser-session validation against a preview configured to the test project.
+- Allocation edits/reversals, refunds, credit notes and adjustment workflows.
+- Independent production security review of every RLS policy.
+- Migration-history repair command is not available through the current database connector; it remains a controlled CLI step before production rollout.
