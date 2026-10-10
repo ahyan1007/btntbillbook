@@ -71,6 +71,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [preparedDoc, setPreparedDoc] = useState<any>(null);
   const [preparing, setPreparing] = useState(true);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
 
   const dataKey = JSON.stringify(data);
 
@@ -79,18 +80,47 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
 
     setPreparing(true);
     setPreparedDoc(null);
+    setPrepareError(null);
 
-    buildBillPdf(data)
-      .then((doc) => {
+    async function prepare() {
+      try {
+        if (!data.customerId || !data.createdAt) {
+          throw new Error('This bill is missing its historical balance reference.');
+        }
+
+        // Reconstruct the signed customer balance immediately before this bill was created.
+        // The same bill's payment entry shares its transaction timestamp, so strict < excludes
+        // current-bill postings and preserves the pre-bill advance rather than today's balance.
+        const { data: priorEntries, error } = await supabase
+          .from('customer_ledger_entries')
+          .select('debit,credit')
+          .eq('customer_id', data.customerId)
+          .lt('created_at', data.createdAt);
+        if (error) throw new Error('Could not load the customer ledger snapshot: ' + error.message);
+
+        const startingBalance = (priorEntries || []).reduce(
+          (balance: number, entry: any) => balance + Number(entry.debit || 0) - Number(entry.credit || 0),
+          0,
+        );
+        const subtotal = Number(data.subtotal || 0);
+        const paidNow = Number(data.paidNow || 0);
+        const advanceApplied = Math.min(Math.max(-startingBalance, 0), subtotal);
+        const advanceAmount = Math.max(-(startingBalance + subtotal - paidNow), 0);
+
+        const doc = await buildBillPdf({ ...data, advanceApplied, advanceAmount });
         if (!cancelled) {
           setPreparedDoc(doc);
           setPreparing(false);
         }
-      })
-      .catch(() => {
-        if (!cancelled) setPreparing(false);
-      });
+      } catch (error) {
+        if (!cancelled) {
+          setPrepareError(error instanceof Error ? error.message : 'Could not prepare accurate bill PDF.');
+          setPreparing(false);
+        }
+      }
+    }
 
+    void prepare();
     return () => {
       cancelled = true;
     };
@@ -244,8 +274,9 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
 
   return (
     <div className='flex flex-wrap items-center justify-end gap-2'>
+      {prepareError && <p role='alert' className='w-full break-words text-left text-xs text-red-700'>Bill PDF could not be prepared with verified advance details: {prepareError}</p>}
       <button
-        disabled={busyAction !== null || preparing}
+        disabled={busyAction !== null || preparing || !!prepareError}
         onClick={() => void run('download')}
         className='rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50'
       >
@@ -255,7 +286,7 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
         </span>
       </button>
       <button
-        disabled={busyAction !== null || preparing}
+        disabled={busyAction !== null || preparing || !!prepareError}
         onClick={() => void run('web')}
         className='rounded-lg bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-90'
       >
