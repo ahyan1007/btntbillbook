@@ -7,6 +7,7 @@ import {
   buildBillPdf,
   buildPaymentPdf,
   sharePdf,
+  pdfFileNameFromDescription,
   type BillPdfData,
   type PaymentPdfData,
 } from '@/lib/pdf';
@@ -96,7 +97,7 @@ export function BillPdfActions({ data }: { data: BillPdfData }) {
     };
   }, [dataKey, tabResumeVersion]);
 
-  const fileName = data.billNo + '.pdf';
+  const fileName = pdfFileNameFromDescription(data.description, data.billNo);
   const message =
     'Bangladesh Tours & Travels\nBill ' +
     data.billNo +
@@ -251,7 +252,7 @@ export function BillHistoryPdfActions({ data }: { data: BillPdfData }) {
     };
   }, [dataKey, tabResumeVersion]);
 
-  const fileName = data.billNo + '.pdf';
+  const fileName = pdfFileNameFromDescription(data.description, data.billNo);
   const message =
     'Bangladesh Tours & Travels\nBill ' +
     data.billNo +
@@ -338,7 +339,7 @@ export function PaymentPdfActions({ data }: { data: PaymentPdfData }) {
     };
   }, [dataKey, tabResumeVersion]);
 
-  const fileName = data.paymentNo + '.pdf';
+  const fileName = pdfFileNameFromDescription(data.note, data.paymentNo);
   const message =
     'Bangladesh Tours & Travels\nPayment Receipt ' +
     data.paymentNo +
