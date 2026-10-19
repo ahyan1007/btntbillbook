@@ -962,6 +962,25 @@ export async function buildPaymentPdf(data: PaymentPdfData) {
   return doc;
 }
 
+export function pdfFileNameFromDescription(description: string | null | undefined, fallback: string) {
+  const raw = (description || '').trim();
+  const withoutExtension = raw.replace(/\.pdf$/i, '').trim();
+  // Keep user-entered descriptions readable while removing characters unsafe in file names.
+  const safe = withoutExtension
+    .normalize('NFKC')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim();
+  const fallbackSafe = (fallback || 'document')
+    .normalize('NFKC')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim() || 'document';
+  return (safe || fallbackSafe) + '.pdf';
+}
+
 export async function sharePdf(doc: jsPDF, fileName: string, whatsappText: string) {
   const blob = doc.output('blob');
   const file = new File([blob], fileName, { type: 'application/pdf' });
