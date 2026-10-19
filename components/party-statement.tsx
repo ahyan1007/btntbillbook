@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, FileText, RefreshCw, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { buildPartyStatementPdf, type PartyStatementPdfData, type PartyStatementTransaction } from '@/lib/statement-pdf';
+import { pdfFileNameFromDescription } from '@/lib/pdf';
 
 type Party = {
   id: string;
@@ -85,6 +86,7 @@ export function PartyStatement() {
   const [loadingParties, setLoadingParties] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [pdfDescription, setPdfDescription] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
@@ -155,6 +157,7 @@ export function PartyStatement() {
         row.balance = runningBalance;
       });
 
+      setPdfDescription('Party Statement - ' + party.name + ' - ' + fromDate + ' to ' + toDate);
       setStatement({
         companyName: 'Bangladesh Tours & Travels',
         partyName: party.name,
@@ -180,7 +183,7 @@ export function PartyStatement() {
     setDownloading(true);
     try {
       const doc = await buildPartyStatementPdf(statement);
-      doc.save('Party-Statement-' + safeFilePart(statement.partyName) + '-' + statement.fromDate + '-to-' + statement.toDate + '.pdf');
+      doc.save(pdfFileNameFromDescription(pdfDescription, 'Party-Statement-' + safeFilePart(statement.partyName) + '-' + statement.fromDate + '-to-' + statement.toDate));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'PDF download failed.');
     } finally {
@@ -271,9 +274,13 @@ export function PartyStatement() {
             <h2 className='font-black'>{statement.partyName}</h2>
             <p className='mt-1 text-xs text-slate-400'>{dateLabel(statement.fromDate)} – {dateLabel(statement.toDate)} · {statement.transactions.length} transactions</p>
           </div>
-          <div className='flex flex-col gap-2 sm:flex-row'>
+          <div className='flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]'>
+            <label className='text-xs font-bold text-slate-500' htmlFor='statement-pdf-description'>PDF Description / File name</label>
+            <input id='statement-pdf-description' className='field' value={pdfDescription} onChange={(event) => setPdfDescription(event.target.value)} maxLength={180} placeholder='Enter PDF file name' />
+            <div className='flex flex-col gap-2 sm:flex-row'>
             <button type='button' disabled={downloading} onClick={downloadPdf} className='btn btn-primary'><FileText size={17}/>{downloading ? 'Preparing PDF...' : 'Download PDF'}</button>
             <button type='button' onClick={downloadCsv} className='btn btn-secondary'><FileSpreadsheet size={17}/>Download CSV</button>
+            </div>
           </div>
         </div>
         <div className='overflow-x-auto'>
